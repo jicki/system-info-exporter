@@ -32,7 +32,7 @@ RUN touch src/main.rs && \
     cargo build --release
 
 # Runtime stage - using CUDA runtime image (smaller than devel)
-FROM reg.deeproute.ai/deeproute-public/zzh/cuda:13.0.2-base-ubuntu22.04
+FROM reg.deeproute.ai/deeproute-public/zzh/cuda:13.0.1-runtime-ubuntu22.04
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
