@@ -1,7 +1,17 @@
-# Build stage
-FROM rust:1.83-alpine AS builder
+# Build stage - using CUDA image for NVML support
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS builder
 
-RUN apk add --no-cache musl-dev pkgconfig openssl-dev
+# Install Rust and build dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 
@@ -9,7 +19,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
 
 # Create dummy src to cache dependencies
-RUN mkdir src && \
+RUN mkdir -p src && \
     echo "fn main() {}" > src/main.rs && \
     cargo build --release && \
     rm -rf src
@@ -21,14 +31,17 @@ COPY src ./src
 RUN touch src/main.rs && \
     cargo build --release
 
-# Runtime stage
-FROM alpine:3.20
+# Runtime stage - using CUDA runtime image (smaller than devel)
+FROM nvidia/cuda:12.4.1-base-ubuntu22.04
 
-RUN apk add --no-cache ca-certificates tzdata
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN addgroup -g 1000 appgroup && \
-    adduser -u 1000 -G appgroup -s /bin/sh -D appuser
+RUN groupadd -g 1000 appgroup && \
+    useradd -u 1000 -g appgroup -s /bin/bash -m appuser
 
 WORKDIR /app
 
@@ -44,5 +57,7 @@ USER appuser
 EXPOSE 8080
 
 ENV RUST_LOG=info
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=utility
 
 ENTRYPOINT ["/app/system-info-exporter"]

@@ -4,7 +4,6 @@ use std::net::SocketAddr;
 use tracing::info;
 
 use crate::config::Settings;
-use crate::metrics;
 
 mod handlers;
 
@@ -19,7 +18,9 @@ pub async fn serve(settings: Settings) -> anyhow::Result<()> {
         .route("/health", get(health))
         .route("/healthz", get(health))
         .route("/ready", get(health))
-        .route("/metrics", get(handlers::get_metrics));
+        .route("/metrics", get(handlers::get_prometheus_metrics))
+        .route("/metrics/json", get(handlers::get_metrics))
+        .route("/node", get(handlers::get_node_metrics));
 
     let addr = SocketAddr::new(
         settings.server.host.parse()?,
