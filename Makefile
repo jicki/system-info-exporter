@@ -3,7 +3,7 @@
 # Project variables
 APP_NAME := system-info-exporter
 VERSION := $(shell cat VERSION)
-DOCKER_REGISTRY ?= docker.io
+DOCKER_REGISTRY ?= reg.deeproute.ai/deeproute-public/zzh
 DOCKER_REPO ?= $(DOCKER_REGISTRY)/$(APP_NAME)
 DOCKER_TAG ?= $(VERSION)
 

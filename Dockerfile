@@ -1,5 +1,5 @@
 # Build stage - using CUDA image for NVML support
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS builder
+FROM nvidia/cuda:13.0.2-devel-ubuntu22.04 AS builder
 
 # Install Rust and build dependencies
 RUN apt-get update && apt-get install -y \
@@ -32,7 +32,7 @@ RUN touch src/main.rs && \
     cargo build --release
 
 # Runtime stage - using CUDA runtime image (smaller than devel)
-FROM nvidia/cuda:12.4.1-base-ubuntu22.04
+FROM nvidia/cuda:13.0.2-base-ubuntu22.04
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
