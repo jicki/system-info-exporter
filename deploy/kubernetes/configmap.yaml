@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: system-info-exporter-config
+  namespace: system-info-exporter
+  labels:
+    app.kubernetes.io/name: system-info-exporter
+data:
+  default.toml: |
+    [server]
+    host = "0.0.0.0"
+    port = 8080
+
+    [metrics]
+    collect_interval_secs = 15

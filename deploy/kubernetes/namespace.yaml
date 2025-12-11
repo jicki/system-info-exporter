@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: system-info-exporter
+  labels:
+    app.kubernetes.io/name: system-info-exporter
+    app.kubernetes.io/component: monitoring

@@ -1,0 +1,8 @@
+# Default configuration for system-info-exporter
+
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[metrics]
+collect_interval_secs = 15
