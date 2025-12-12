@@ -1,6 +1,8 @@
 # Build stage - use Rust with musl target for static compilation
 FROM reg.deeproute.ai/deeproute-public/zzh/rust:1.92-alpine AS builder
 
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
+
 # Install build dependencies for musl static compilation
 RUN apk add --no-cache \
     musl-dev \
@@ -37,6 +39,8 @@ RUN file target/x86_64-unknown-linux-musl/release/system-info-exporter && \
 
 # Runtime stage - minimal base image (can even use scratch)
 FROM reg.deeproute.ai/deeproute-public/zzh/alpine:3.23
+
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
 
 # Install minimal runtime dependencies
 RUN apk add --no-cache ca-certificates bash
