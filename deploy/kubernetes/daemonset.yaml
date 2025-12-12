@@ -43,9 +43,9 @@ spec:
             - name: host-os-release
               mountPath: /host/etc/os-release
               readOnly: true
-            # Mount /proc/driver for NVIDIA GPU detection
-            - name: proc-driver
-              mountPath: /proc/driver
+            # Mount host's /proc/driver for NVIDIA GPU detection
+            - name: host-proc-driver
+              mountPath: /host/proc/driver
               readOnly: true
           resources:
             requests:
@@ -89,8 +89,8 @@ spec:
           hostPath:
             path: /etc/os-release
             type: File
-        # Mount /proc/driver for NVIDIA GPU detection (/proc/driver/nvidia/version)
-        - name: proc-driver
+        # Mount host's /proc/driver for NVIDIA GPU detection
+        - name: host-proc-driver
           hostPath:
             path: /proc/driver
             type: Directory

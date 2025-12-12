@@ -346,9 +346,9 @@ fn get_host_os_info() -> (String, String) {
 }
 
 /// Check if NVIDIA GPU hardware is present
-/// Uses /proc/driver/nvidia/version which is mounted from host
+/// Uses /host/proc/driver/nvidia/version which is mounted from host
 fn has_nvidia_gpu() -> bool {
-    std::path::Path::new("/proc/driver/nvidia/version").exists()
+    std::path::Path::new("/host/proc/driver/nvidia/version").exists()
 }
 
 /// Find nvidia-smi binary path
