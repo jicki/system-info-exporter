@@ -10,14 +10,19 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Download and install minimal CUDA toolkit (only NVML headers)
-# This is much faster than using full CUDA devel image
-RUN mkdir -p /usr/local/cuda/include && \
-    wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian11/x86_64/cuda-keyring_1.1-1_all.deb && \
-    dpkg -i cuda-keyring_1.1-1_all.deb && \
-    apt-get update && \
-    apt-get install -y cuda-nvml-dev-12-3 --no-install-recommends && \
-    rm -rf /var/lib/apt/lists/* && \
-    rm cuda-keyring_1.1-1_all.deb
+# Only install on x86_64 architecture, skip on ARM64
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then \
+        mkdir -p /usr/local/cuda/include && \
+        wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian11/x86_64/cuda-keyring_1.1-1_all.deb && \
+        dpkg -i cuda-keyring_1.1-1_all.deb && \
+        apt-get update && \
+        apt-get install -y cuda-nvml-dev-12-3 --no-install-recommends && \
+        rm -rf /var/lib/apt/lists/* && \
+        rm cuda-keyring_1.1-1_all.deb; \
+    else \
+        echo "Skipping CUDA installation on non-x86_64 architecture: $ARCH"; \
+    fi
 
 WORKDIR /app
 
