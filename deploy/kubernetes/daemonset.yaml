@@ -46,6 +46,9 @@ spec:
             - name: config
               mountPath: /app/config
               readOnly: true
+            - name: host-os-release
+              mountPath: /host/etc/os-release
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -84,3 +87,7 @@ spec:
         - name: config
           configMap:
             name: system-info-exporter-config
+        - name: host-os-release
+          hostPath:
+            path: /etc/os-release
+            type: File

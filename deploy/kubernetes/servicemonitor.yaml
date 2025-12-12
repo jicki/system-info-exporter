@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: system-info-exporter
+  namespace: system-info-exporter
+  labels:
+    app.kubernetes.io/name: system-info-exporter
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: system-info-exporter
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics
+      # Drop unwanted Kubernetes labels and keep only the 'node' label from the exporter
+      metricRelabelings:
+        - action: labeldrop
+          regex: namespace
+        - action: labeldrop
+          regex: instance
+        - action: labeldrop
+          regex: pod
+        - action: labeldrop
+          regex: container

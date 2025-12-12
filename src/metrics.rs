@@ -1,6 +1,7 @@
 use nvml_wrapper::Nvml;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::fs;
 use sysinfo::System;
 use tracing::warn;
 
@@ -21,6 +22,7 @@ pub struct GpuInfo {
 #[derive(Debug, Serialize, Clone)]
 pub struct NodeMetrics {
     pub hostname: String,
+    pub node: String,
     pub os_name: String,
     pub os_version: String,
     pub kernel_version: String,
@@ -60,10 +62,20 @@ impl NodeMetrics {
 
         let (gpu_devices, gpu_type_counts) = collect_gpu_info();
 
+        // Get node name from NODE_NAME env variable, fallback to hostname
+        let node = std::env::var("NODE_NAME")
+            .ok()
+            .or_else(|| System::host_name())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Get host OS information from mounted /host/etc/os-release
+        let (os_name, os_version) = get_host_os_info();
+
         NodeMetrics {
             hostname: System::host_name().unwrap_or_else(|| "unknown".to_string()),
-            os_name: System::name().unwrap_or_else(|| "unknown".to_string()),
-            os_version: System::os_version().unwrap_or_else(|| "unknown".to_string()),
+            node,
+            os_name,
+            os_version,
             kernel_version: System::kernel_version().unwrap_or_else(|| "unknown".to_string()),
             uptime_secs: System::uptime(),
             cpu_cores: sys.physical_core_count().unwrap_or(0),
@@ -82,14 +94,14 @@ impl NodeMetrics {
 
     pub fn to_prometheus(&self) -> String {
         let mut output = String::new();
-        let hostname = &self.hostname;
+        let node = &self.node;
 
         // Node info
         output.push_str("# HELP hw_node_info Node hardware information\n");
         output.push_str("# TYPE hw_node_info gauge\n");
         output.push_str(&format!(
-            "hw_node_info{{hostname=\"{}\",os=\"{}\",os_version=\"{}\",kernel=\"{}\",cpu_model=\"{}\"}} 1\n",
-            hostname,
+            "hw_node_info{{node=\"{}\",os=\"{}\",os_version=\"{}\",kernel=\"{}\",cpu_model=\"{}\"}} 1\n",
+            node,
             self.os_name,
             self.os_version,
             self.kernel_version,
@@ -100,67 +112,67 @@ impl NodeMetrics {
         output.push_str("# HELP hw_node_uptime_seconds Node uptime in seconds\n");
         output.push_str("# TYPE hw_node_uptime_seconds counter\n");
         output.push_str(&format!(
-            "hw_node_uptime_seconds{{hostname=\"{}\"}} {}\n",
-            hostname, self.uptime_secs
+            "hw_node_uptime_seconds{{node=\"{}\"}} {}\n",
+            node, self.uptime_secs
         ));
 
         // CPU
         output.push_str("# HELP hw_cpu_cores Number of physical CPU cores\n");
         output.push_str("# TYPE hw_cpu_cores gauge\n");
         output.push_str(&format!(
-            "hw_cpu_cores{{hostname=\"{}\"}} {}\n",
-            hostname, self.cpu_cores
+            "hw_cpu_cores{{node=\"{}\"}} {}\n",
+            node, self.cpu_cores
         ));
 
         output.push_str("# HELP hw_cpu_threads Number of CPU threads\n");
         output.push_str("# TYPE hw_cpu_threads gauge\n");
         output.push_str(&format!(
-            "hw_cpu_threads{{hostname=\"{}\"}} {}\n",
-            hostname, self.cpu_threads
+            "hw_cpu_threads{{node=\"{}\"}} {}\n",
+            node, self.cpu_threads
         ));
 
         output.push_str("# HELP hw_cpu_usage_percent CPU usage percentage\n");
         output.push_str("# TYPE hw_cpu_usage_percent gauge\n");
         output.push_str(&format!(
-            "hw_cpu_usage_percent{{hostname=\"{}\"}} {:.2}\n",
-            hostname, self.cpu_usage_percent
+            "hw_cpu_usage_percent{{node=\"{}\"}} {:.2}\n",
+            node, self.cpu_usage_percent
         ));
 
         // Memory
         output.push_str("# HELP hw_memory_total_bytes Total memory in bytes\n");
         output.push_str("# TYPE hw_memory_total_bytes gauge\n");
         output.push_str(&format!(
-            "hw_memory_total_bytes{{hostname=\"{}\"}} {}\n",
-            hostname, self.memory_total_bytes
+            "hw_memory_total_bytes{{node=\"{}\"}} {}\n",
+            node, self.memory_total_bytes
         ));
 
         output.push_str("# HELP hw_memory_used_bytes Used memory in bytes\n");
         output.push_str("# TYPE hw_memory_used_bytes gauge\n");
         output.push_str(&format!(
-            "hw_memory_used_bytes{{hostname=\"{}\"}} {}\n",
-            hostname, self.memory_used_bytes
+            "hw_memory_used_bytes{{node=\"{}\"}} {}\n",
+            node, self.memory_used_bytes
         ));
 
         output.push_str("# HELP hw_memory_available_bytes Available memory in bytes\n");
         output.push_str("# TYPE hw_memory_available_bytes gauge\n");
         output.push_str(&format!(
-            "hw_memory_available_bytes{{hostname=\"{}\"}} {}\n",
-            hostname, self.memory_available_bytes
+            "hw_memory_available_bytes{{node=\"{}\"}} {}\n",
+            node, self.memory_available_bytes
         ));
 
         output.push_str("# HELP hw_memory_usage_percent Memory usage percentage\n");
         output.push_str("# TYPE hw_memory_usage_percent gauge\n");
         output.push_str(&format!(
-            "hw_memory_usage_percent{{hostname=\"{}\"}} {:.2}\n",
-            hostname, self.memory_usage_percent
+            "hw_memory_usage_percent{{node=\"{}\"}} {:.2}\n",
+            node, self.memory_usage_percent
         ));
 
         // GPU total count
         output.push_str("# HELP hw_gpu_count Total number of GPUs\n");
         output.push_str("# TYPE hw_gpu_count gauge\n");
         output.push_str(&format!(
-            "hw_gpu_count{{hostname=\"{}\"}} {}\n",
-            hostname, self.gpu_count
+            "hw_gpu_count{{node=\"{}\"}} {}\n",
+            node, self.gpu_count
         ));
 
         // GPU type counts
@@ -169,8 +181,8 @@ impl NodeMetrics {
             output.push_str("# TYPE hw_gpu_type_count gauge\n");
             for (gpu_type, count) in &self.gpu_type_counts {
                 output.push_str(&format!(
-                    "hw_gpu_type_count{{hostname=\"{}\",gpu_type=\"{}\"}} {}\n",
-                    hostname,
+                    "hw_gpu_type_count{{node=\"{}\",gpu_type=\"{}\"}} {}\n",
+                    node,
                     escape_label_value(gpu_type),
                     count
                 ));
@@ -183,8 +195,8 @@ impl NodeMetrics {
             output.push_str("# TYPE hw_gpu_memory_total_bytes gauge\n");
             for gpu in &self.gpu_devices {
                 output.push_str(&format!(
-                    "hw_gpu_memory_total_bytes{{hostname=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
-                    hostname,
+                    "hw_gpu_memory_total_bytes{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
+                    node,
                     gpu.index,
                     escape_label_value(&gpu.name),
                     gpu.uuid,
@@ -196,8 +208,8 @@ impl NodeMetrics {
             output.push_str("# TYPE hw_gpu_memory_used_bytes gauge\n");
             for gpu in &self.gpu_devices {
                 output.push_str(&format!(
-                    "hw_gpu_memory_used_bytes{{hostname=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
-                    hostname,
+                    "hw_gpu_memory_used_bytes{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
+                    node,
                     gpu.index,
                     escape_label_value(&gpu.name),
                     gpu.uuid,
@@ -209,8 +221,8 @@ impl NodeMetrics {
             output.push_str("# TYPE hw_gpu_memory_free_bytes gauge\n");
             for gpu in &self.gpu_devices {
                 output.push_str(&format!(
-                    "hw_gpu_memory_free_bytes{{hostname=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
-                    hostname,
+                    "hw_gpu_memory_free_bytes{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
+                    node,
                     gpu.index,
                     escape_label_value(&gpu.name),
                     gpu.uuid,
@@ -222,8 +234,8 @@ impl NodeMetrics {
             output.push_str("# TYPE hw_gpu_utilization_percent gauge\n");
             for gpu in &self.gpu_devices {
                 output.push_str(&format!(
-                    "hw_gpu_utilization_percent{{hostname=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
-                    hostname,
+                    "hw_gpu_utilization_percent{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
+                    node,
                     gpu.index,
                     escape_label_value(&gpu.name),
                     gpu.uuid,
@@ -235,8 +247,8 @@ impl NodeMetrics {
             output.push_str("# TYPE hw_gpu_temperature_celsius gauge\n");
             for gpu in &self.gpu_devices {
                 output.push_str(&format!(
-                    "hw_gpu_temperature_celsius{{hostname=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
-                    hostname,
+                    "hw_gpu_temperature_celsius{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
+                    node,
                     gpu.index,
                     escape_label_value(&gpu.name),
                     gpu.uuid,
@@ -248,8 +260,8 @@ impl NodeMetrics {
             output.push_str("# TYPE hw_gpu_power_draw_watts gauge\n");
             for gpu in &self.gpu_devices {
                 output.push_str(&format!(
-                    "hw_gpu_power_draw_watts{{hostname=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
-                    hostname,
+                    "hw_gpu_power_draw_watts{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
+                    node,
                     gpu.index,
                     escape_label_value(&gpu.name),
                     gpu.uuid,
@@ -261,8 +273,8 @@ impl NodeMetrics {
             output.push_str("# TYPE hw_gpu_power_limit_watts gauge\n");
             for gpu in &self.gpu_devices {
                 output.push_str(&format!(
-                    "hw_gpu_power_limit_watts{{hostname=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
-                    hostname,
+                    "hw_gpu_power_limit_watts{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
+                    node,
                     gpu.index,
                     escape_label_value(&gpu.name),
                     gpu.uuid,
@@ -279,6 +291,47 @@ fn escape_label_value(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n")
+}
+
+/// Parse /etc/os-release file to get OS name and version
+/// Returns (os_name, os_version)
+fn parse_os_release(path: &str) -> Option<(String, String)> {
+    let content = fs::read_to_string(path).ok()?;
+
+    let mut name = None;
+    let mut version = None;
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with("NAME=") {
+            name = Some(line[5..].trim_matches('"').to_string());
+        } else if line.starts_with("VERSION_ID=") {
+            version = Some(line[11..].trim_matches('"').to_string());
+        }
+
+        if name.is_some() && version.is_some() {
+            break;
+        }
+    }
+
+    match (name, version) {
+        (Some(n), Some(v)) => Some((n, v)),
+        _ => None,
+    }
+}
+
+/// Get host OS information, trying host mount first, then falling back to container OS
+fn get_host_os_info() -> (String, String) {
+    // Try to read from host mount first
+    if let Some((name, version)) = parse_os_release("/host/etc/os-release") {
+        return (name, version);
+    }
+
+    // Fallback to sysinfo for container OS
+    let os_name = System::name().unwrap_or_else(|| "unknown".to_string());
+    let os_version = System::os_version().unwrap_or_else(|| "unknown".to_string());
+
+    (os_name, os_version)
 }
 
 fn collect_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
