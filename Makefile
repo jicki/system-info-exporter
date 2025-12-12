@@ -53,9 +53,7 @@ clean:
 docker-build:
 	docker build -t $(DOCKER_REPO):$(DOCKER_TAG) .
 	docker tag $(DOCKER_REPO):$(DOCKER_TAG) $(DOCKER_REPO):latest
-
-## docker-push: Push Docker image to registry
-docker-push:
+	@echo "Docker image Push to registry: $(DOCKER_REPO):$(DOCKER_TAG)"
 	docker push $(DOCKER_REPO):$(DOCKER_TAG)
 	docker push $(DOCKER_REPO):latest
 
