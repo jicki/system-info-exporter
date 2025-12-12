@@ -334,12 +334,35 @@ fn get_host_os_info() -> (String, String) {
     (os_name, os_version)
 }
 
+/// NVML library search paths
+const NVML_LIB_PATHS: &[&str] = &[
+    "/host/nvidia-libs",
+    "/usr/lib/x86_64-linux-gnu",
+    "/usr/lib",
+];
+
 /// Check if NVIDIA GPU hardware is present by checking for NVIDIA device files
 /// This prevents unnecessary NVML initialization attempts on non-GPU nodes
 fn has_nvidia_gpu() -> bool {
     std::path::Path::new("/dev/nvidiactl").exists()
         || std::path::Path::new("/dev/nvidia0").exists()
         || std::path::Path::new("/proc/driver/nvidia/version").exists()
+}
+
+/// Find directory containing libnvidia-ml.so
+fn find_nvml_lib_dir() -> Option<&'static str> {
+    for dir in NVML_LIB_PATHS {
+        let lib_path = format!("{}/libnvidia-ml.so", dir);
+        if std::path::Path::new(&lib_path).exists() {
+            return Some(dir);
+        }
+        // Also check for .so.1 version
+        let lib_path_v1 = format!("{}/libnvidia-ml.so.1", dir);
+        if std::path::Path::new(&lib_path_v1).exists() {
+            return Some(dir);
+        }
+    }
+    None
 }
 
 fn collect_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
@@ -351,6 +374,22 @@ fn collect_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
         info!("No NVIDIA GPU hardware detected, skipping GPU metrics collection");
         return (gpu_devices, gpu_type_counts);
     }
+
+    // Find and set library path for NVML
+    // At this point, all system libs (glibc etc.) are already loaded,
+    // so setting LD_LIBRARY_PATH won't cause conflicts
+    let nvml_dir = match find_nvml_lib_dir() {
+        Some(dir) => {
+            info!("Found NVML library in: {}", dir);
+            // Set LD_LIBRARY_PATH for dlopen to find the library
+            std::env::set_var("LD_LIBRARY_PATH", dir);
+            dir
+        }
+        None => {
+            info!("NVML library not found, skipping GPU metrics collection");
+            return (gpu_devices, gpu_type_counts);
+        }
+    };
 
     match Nvml::init() {
         Ok(nvml) => {
