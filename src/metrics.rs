@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use sysinfo::System;
-use tracing::warn;
+use tracing::{info, warn};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct GpuInfo {
@@ -334,9 +334,24 @@ fn get_host_os_info() -> (String, String) {
     (os_name, os_version)
 }
 
+/// Check if NVIDIA GPU hardware is present by checking for NVIDIA device files
+/// This prevents unnecessary NVML initialization attempts on non-GPU nodes
+fn has_nvidia_gpu() -> bool {
+    // Check for NVIDIA control device - created by NVIDIA driver when GPU is present
+    std::path::Path::new("/dev/nvidiactl").exists()
+        || std::path::Path::new("/dev/nvidia0").exists()
+        || std::path::Path::new("/proc/driver/nvidia/version").exists()
+}
+
 fn collect_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
     let mut gpu_devices = Vec::new();
     let mut gpu_type_counts: HashMap<String, u32> = HashMap::new();
+
+    // Early return if no NVIDIA GPU hardware detected
+    if !has_nvidia_gpu() {
+        info!("No NVIDIA GPU hardware detected, skipping GPU metrics collection");
+        return (gpu_devices, gpu_type_counts);
+    }
 
     match Nvml::init() {
         Ok(nvml) => {

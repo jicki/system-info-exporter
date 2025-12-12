@@ -5,7 +5,7 @@ metadata:
   namespace: system-info-exporter
   labels:
     app.kubernetes.io/name: system-info-exporter
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.1.2"
 spec:
   selector:
     matchLabels:
@@ -15,16 +15,11 @@ spec:
       labels:
         app.kubernetes.io/name: system-info-exporter
     spec:
-      # Use nvidia runtime for NVML access
-      runtimeClassName: nvidia
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
+      # Note: No runtimeClassName to support both GPU and non-GPU nodes
+      # NVIDIA Container Toolkit will auto-inject GPU support when NVIDIA_VISIBLE_DEVICES is set
       containers:
         - name: system-info-exporter
-          image: system-info-exporter:0.1.0
+          image: reg.deeproute.ai/deeproute-public/zzh/system-info-exporter:0.1.2
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -33,6 +28,8 @@ spec:
           env:
             - name: RUST_LOG
               value: "info"
+            # NVIDIA environment variables for GPU nodes
+            # Safe on non-GPU nodes - will be ignored if NVIDIA runtime is not available
             - name: NVIDIA_VISIBLE_DEVICES
               value: "all"
             - name: NVIDIA_DRIVER_CAPABILITIES
