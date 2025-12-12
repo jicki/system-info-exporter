@@ -19,6 +19,7 @@ config = "0.14"
 thiserror = "1"
 anyhow = "1"
 nvml-wrapper = "0.10"
+libloading = "0.8"
 
 [dev-dependencies]
 tokio-test = "0.4"

@@ -1,9 +1,43 @@
+use libloading::Library;
 use nvml_wrapper::Nvml;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
+use std::sync::OnceLock;
 use sysinfo::System;
 use tracing::{info, warn};
+
+/// NVML library search paths (in order of priority)
+const NVML_LIB_PATHS: &[&str] = &[
+    "/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1",
+    "/usr/lib/libnvidia-ml.so.1",
+    "/host/nvidia-libs/libnvidia-ml.so.1",
+];
+
+/// Global storage for preloaded NVML library to keep it in memory
+static NVML_LIB: OnceLock<Option<Library>> = OnceLock::new();
+
+/// Preload NVML library from known paths
+/// This must be called before Nvml::init() to make the library available
+fn preload_nvml_library() -> bool {
+    NVML_LIB.get_or_init(|| {
+        for path in NVML_LIB_PATHS {
+            if std::path::Path::new(path).exists() {
+                match unsafe { Library::new(path) } {
+                    Ok(lib) => {
+                        info!("Successfully preloaded NVML library from: {}", path);
+                        return Some(lib);
+                    }
+                    Err(e) => {
+                        warn!("Failed to load NVML library from {}: {}", path, e);
+                    }
+                }
+            }
+        }
+        info!("NVML library not found in any known path");
+        None
+    }).is_some()
+}
 
 #[derive(Debug, Serialize, Clone)]
 pub struct GpuInfo {
@@ -337,7 +371,6 @@ fn get_host_os_info() -> (String, String) {
 /// Check if NVIDIA GPU hardware is present by checking for NVIDIA device files
 /// This prevents unnecessary NVML initialization attempts on non-GPU nodes
 fn has_nvidia_gpu() -> bool {
-    // Check for NVIDIA control device - created by NVIDIA driver when GPU is present
     std::path::Path::new("/dev/nvidiactl").exists()
         || std::path::Path::new("/dev/nvidia0").exists()
         || std::path::Path::new("/proc/driver/nvidia/version").exists()
@@ -350,6 +383,12 @@ fn collect_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
     // Early return if no NVIDIA GPU hardware detected
     if !has_nvidia_gpu() {
         info!("No NVIDIA GPU hardware detected, skipping GPU metrics collection");
+        return (gpu_devices, gpu_type_counts);
+    }
+
+    // Preload NVML library from known paths before initialization
+    if !preload_nvml_library() {
+        info!("NVML library not available, skipping GPU metrics collection");
         return (gpu_devices, gpu_type_counts);
     }
 

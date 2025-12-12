@@ -5,7 +5,7 @@ metadata:
   namespace: system-info-exporter
   labels:
     app.kubernetes.io/name: system-info-exporter
-    app.kubernetes.io/version: "0.1.2"
+    app.kubernetes.io/version: "0.1.4"
 spec:
   selector:
     matchLabels:
@@ -15,11 +15,9 @@ spec:
       labels:
         app.kubernetes.io/name: system-info-exporter
     spec:
-      # No runtimeClassName needed - NVIDIA Container Toolkit will auto-inject GPU support
-      # based on NVIDIA_VISIBLE_DEVICES environment variable on GPU nodes
       containers:
         - name: system-info-exporter
-          image: reg.deeproute.ai/deeproute-public/zzh/system-info-exporter:0.1.2
+          image: reg.deeproute.ai/deeproute-public/zzh/system-info-exporter:0.1.4
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -28,8 +26,7 @@ spec:
           env:
             - name: RUST_LOG
               value: "info"
-            # NVIDIA environment variables - Container Toolkit will auto-inject GPU support on GPU nodes
-            # On CPU nodes, these variables are safely ignored
+            # NVIDIA environment variables
             - name: NVIDIA_VISIBLE_DEVICES
               value: "all"
             - name: NVIDIA_DRIVER_CAPABILITIES
@@ -45,6 +42,11 @@ spec:
               readOnly: true
             - name: host-os-release
               mountPath: /host/etc/os-release
+              readOnly: true
+            # Mount NVIDIA libraries from host
+            # Program will load libnvidia-ml.so directly from this path
+            - name: nvidia-libs
+              mountPath: /host/nvidia-libs
               readOnly: true
           resources:
             requests:
@@ -88,3 +90,10 @@ spec:
           hostPath:
             path: /etc/os-release
             type: File
+        # Mount host's library directory for NVIDIA libs access
+        # Program loads libnvidia-ml.so directly using libloading
+        # On CPU nodes, this directory exists but doesn't have NVIDIA libs (safe)
+        - name: nvidia-libs
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu
+            type: Directory
