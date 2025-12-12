@@ -15,8 +15,8 @@ spec:
       labels:
         app.kubernetes.io/name: system-info-exporter
     spec:
-      # Note: No runtimeClassName to support both GPU and non-GPU nodes
-      # NVIDIA Container Toolkit will auto-inject GPU support when NVIDIA_VISIBLE_DEVICES is set
+      # No runtimeClassName needed - NVIDIA Container Toolkit will auto-inject GPU support
+      # based on NVIDIA_VISIBLE_DEVICES environment variable on GPU nodes
       containers:
         - name: system-info-exporter
           image: reg.deeproute.ai/deeproute-public/zzh/system-info-exporter:0.1.2
@@ -28,8 +28,8 @@ spec:
           env:
             - name: RUST_LOG
               value: "info"
-            # NVIDIA environment variables for GPU nodes
-            # Safe on non-GPU nodes - will be ignored if NVIDIA runtime is not available
+            # NVIDIA environment variables - Container Toolkit will auto-inject GPU support on GPU nodes
+            # On CPU nodes, these variables are safely ignored
             - name: NVIDIA_VISIBLE_DEVICES
               value: "all"
             - name: NVIDIA_DRIVER_CAPABILITIES
