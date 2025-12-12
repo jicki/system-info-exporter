@@ -1,45 +1,51 @@
-# Build stage - using CUDA devel image for NVML headers (compile time only)
-FROM reg.deeproute.ai/deeproute-public/zzh/cuda:13.0.2-devel-ubuntu22.04 AS builder
+# Build stage - use Rust official image with CUDA headers
+FROM reg.deeproute.ai/deeproute-public/zzh/rust:1.92-slim-bookworm AS builder
 
-# Install Rust and build dependencies
+# Install CUDA headers and build dependencies
+# Only install what's needed for nvml-wrapper compilation
 RUN apt-get update && apt-get install -y \
-    curl \
-    build-essential \
     pkg-config \
     libssl-dev \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
+# Download and install minimal CUDA toolkit (only NVML headers)
+# This is much faster than using full CUDA devel image
+RUN mkdir -p /usr/local/cuda/include && \
+    wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian11/x86_64/cuda-keyring_1.1-1_all.deb && \
+    dpkg -i cuda-keyring_1.1-1_all.deb && \
+    apt-get update && \
+    apt-get install -y cuda-nvml-dev-12-3 --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm cuda-keyring_1.1-1_all.deb
 
 WORKDIR /app
 
-# Copy manifests
-COPY Cargo.toml Cargo.lock* ./
+# Copy manifests and lock file
+COPY Cargo.toml Cargo.lock ./
 
 # Create dummy src to cache dependencies
+# This layer will be cached unless dependencies change
 RUN mkdir -p src && \
     echo "fn main() {}" > src/main.rs && \
     cargo build --release && \
-    rm -rf src
+    rm -rf src target/release/system-info-exporter*
 
 # Copy actual source code
 COPY src ./src
+COPY config ./config
 
 # Build the application
+# Touch main.rs to force rebuild of only our code
 RUN touch src/main.rs && \
     cargo build --release
 
 # Runtime stage - minimal base image
-# libnvidia-ml.so is provided by NVIDIA Container Toolkit at runtime
-FROM reg.deeproute.ai/deeproute-public/zzh/ubuntu:22.04
+FROM reg.deeproute.ai/deeproute-public/zzh/debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    tzdata \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -rf /var/cache/apt/archives/*
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN groupadd -g 1000 appgroup && \
@@ -47,9 +53,9 @@ RUN groupadd -g 1000 appgroup && \
 
 WORKDIR /app
 
-# Copy binary from builder
+# Copy binary and config from builder
 COPY --from=builder /app/target/release/system-info-exporter /app/
-COPY config /app/config
+COPY --from=builder /app/config /app/config
 
 # Set ownership
 RUN chown -R appuser:appgroup /app
@@ -59,7 +65,6 @@ USER appuser
 EXPOSE 8080
 
 ENV RUST_LOG=info
-# NVIDIA Container Toolkit will mount libnvidia-ml.so based on these env vars
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=utility
 
