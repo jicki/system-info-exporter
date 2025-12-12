@@ -1,4 +1,4 @@
-# Build stage - using CUDA image for NVML support
+# Build stage - using CUDA devel image for NVML headers (compile time only)
 FROM reg.deeproute.ai/deeproute-public/zzh/cuda:13.0.2-devel-ubuntu22.04 AS builder
 
 # Install Rust and build dependencies
@@ -31,13 +31,15 @@ COPY src ./src
 RUN touch src/main.rs && \
     cargo build --release
 
-# Runtime stage - using CUDA runtime image (smaller than devel)
-FROM reg.deeproute.ai/deeproute-public/zzh/cuda:13.0.1-runtime-ubuntu22.04
+# Runtime stage - minimal base image
+# libnvidia-ml.so is provided by NVIDIA Container Toolkit at runtime
+FROM reg.deeproute.ai/deeproute-public/zzh/ubuntu:22.04
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     tzdata \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /var/cache/apt/archives/*
 
 # Create non-root user
 RUN groupadd -g 1000 appgroup && \
@@ -57,6 +59,7 @@ USER appuser
 EXPOSE 8080
 
 ENV RUST_LOG=info
+# NVIDIA Container Toolkit will mount libnvidia-ml.so based on these env vars
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=utility
 

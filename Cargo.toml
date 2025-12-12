@@ -2,10 +2,10 @@
 name = "system-info-exporter"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["jicki <jicki@qq.com>"]
 description = "A system information exporter service"
 license = "MIT"
-repository = "https://github.com/your-org/system-info-exporter"
+repository = "https://github.com/jicki/system-info-exporter"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
