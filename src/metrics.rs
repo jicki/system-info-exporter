@@ -10,8 +10,9 @@ use tracing::{info, warn};
 const NVIDIA_SMI_TIMEOUT_SECS: u64 = 5;
 
 /// Path to nvidia-smi binary
-/// NVIDIA Container Runtime automatically injects nvidia-smi at /usr/bin/nvidia-smi
+/// Try host-mounted path first, then container paths
 const NVIDIA_SMI_PATHS: &[&str] = &[
+    "/host/usr/bin/nvidia-smi",
     "/usr/bin/nvidia-smi",
     "/usr/local/bin/nvidia-smi",
 ];
@@ -366,12 +367,16 @@ fn find_nvidia_smi() -> Option<&'static str> {
 fn run_nvidia_smi_with_timeout(args: &[&str]) -> Option<String> {
     let nvidia_smi = find_nvidia_smi()?;
     
+    // Set LD_LIBRARY_PATH for nvidia-smi dependencies when using host-mounted binary
+    let ld_library_path = "/host/nvidia-libs:/usr/lib/x86_64-linux-gnu:/usr/lib";
+    
     // Use timeout command to prevent nvidia-smi from hanging
     // This is more reliable than Rust-side timeout for process hangs
     let output = Command::new("timeout")
         .arg(format!("{}s", NVIDIA_SMI_TIMEOUT_SECS))
         .arg(nvidia_smi)
         .args(args)
+        .env("LD_LIBRARY_PATH", ld_library_path)
         .output();
 
     match output {
@@ -402,8 +407,12 @@ fn run_nvidia_smi_direct(nvidia_smi: &str, args: &[&str]) -> Option<String> {
     use std::process::Stdio;
     use std::thread;
     
+    // Set LD_LIBRARY_PATH for nvidia-smi dependencies
+    let ld_library_path = "/host/nvidia-libs:/usr/lib/x86_64-linux-gnu:/usr/lib";
+    
     let mut child = Command::new(nvidia_smi)
         .args(args)
+        .env("LD_LIBRARY_PATH", ld_library_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()

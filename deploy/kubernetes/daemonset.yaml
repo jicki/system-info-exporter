@@ -47,6 +47,14 @@ spec:
             - name: host-proc-driver
               mountPath: /host/proc/driver
               readOnly: true
+            # Mount host's /usr/bin for nvidia-smi access
+            - name: host-usr-bin
+              mountPath: /host/usr/bin
+              readOnly: true
+            # Mount NVIDIA libraries for nvidia-smi dependencies
+            - name: host-nvidia-libs
+              mountPath: /host/nvidia-libs
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -93,4 +101,14 @@ spec:
         - name: host-proc-driver
           hostPath:
             path: /proc/driver
+            type: Directory
+        # Mount host's /usr/bin for nvidia-smi
+        - name: host-usr-bin
+          hostPath:
+            path: /usr/bin
+            type: Directory
+        # Mount NVIDIA libraries for nvidia-smi
+        - name: host-nvidia-libs
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu
             type: Directory
