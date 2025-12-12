@@ -10,10 +10,10 @@ use tracing::{info, warn};
 const NVIDIA_SMI_TIMEOUT_SECS: u64 = 5;
 
 /// Path to nvidia-smi binary
+/// NVIDIA Container Runtime automatically injects nvidia-smi at /usr/bin/nvidia-smi
 const NVIDIA_SMI_PATHS: &[&str] = &[
     "/usr/bin/nvidia-smi",
     "/usr/local/bin/nvidia-smi",
-    "/host/nvidia-smi",
 ];
 
 #[derive(Debug, Serialize, Clone)]

@@ -5,7 +5,7 @@ metadata:
   namespace: system-info-exporter
   labels:
     app.kubernetes.io/name: system-info-exporter
-    app.kubernetes.io/version: "1.0.1"
+    app.kubernetes.io/version: "1.0.3"
 spec:
   selector:
     matchLabels:
@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: system-info-exporter
-          image: reg.deeproute.ai/deeproute-public/zzh/system-info-exporter:1.0.1
+          image: reg.deeproute.ai/deeproute-public/zzh/system-info-exporter:1.0.3
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -42,10 +42,6 @@ spec:
               readOnly: true
             - name: host-os-release
               mountPath: /host/etc/os-release
-              readOnly: true
-            # Mount nvidia-smi from host for GPU metrics collection
-            - name: nvidia-smi
-              mountPath: /host/nvidia-smi
               readOnly: true
             # Mount NVIDIA device files for GPU detection
             - name: nvidia-dev
@@ -93,12 +89,6 @@ spec:
           hostPath:
             path: /etc/os-release
             type: File
-        # Mount nvidia-smi binary from host
-        # On CPU nodes, this file doesn't exist (safe - program handles gracefully)
-        - name: nvidia-smi
-          hostPath:
-            path: /usr/bin/nvidia-smi
-            type: FileOrCreate
         # Mount /dev for NVIDIA device detection (/dev/nvidiactl, /dev/nvidia0, etc.)
         - name: nvidia-dev
           hostPath:
