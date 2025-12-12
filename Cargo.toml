@@ -18,7 +18,6 @@ sysinfo = "0.31"
 config = "0.14"
 thiserror = "1"
 anyhow = "1"
-nvml-wrapper = "0.10"
 
 [dev-dependencies]
 tokio-test = "0.4"

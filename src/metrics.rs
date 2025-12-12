@@ -1,9 +1,20 @@
-use nvml_wrapper::Nvml;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
+use std::process::Command;
+use std::time::Duration;
 use sysinfo::System;
 use tracing::{info, warn};
+
+/// Timeout for nvidia-smi command execution (in seconds)
+const NVIDIA_SMI_TIMEOUT_SECS: u64 = 5;
+
+/// Path to nvidia-smi binary
+const NVIDIA_SMI_PATHS: &[&str] = &[
+    "/usr/bin/nvidia-smi",
+    "/usr/local/bin/nvidia-smi",
+    "/host/nvidia-smi",
+];
 
 #[derive(Debug, Serialize, Clone)]
 pub struct GpuInfo {
@@ -335,13 +346,183 @@ fn get_host_os_info() -> (String, String) {
 }
 
 /// Check if NVIDIA GPU hardware is present by checking for NVIDIA device files
-/// This prevents unnecessary NVML initialization attempts on non-GPU nodes
 fn has_nvidia_gpu() -> bool {
     std::path::Path::new("/dev/nvidiactl").exists()
         || std::path::Path::new("/dev/nvidia0").exists()
         || std::path::Path::new("/proc/driver/nvidia/version").exists()
 }
 
+/// Find nvidia-smi binary path
+fn find_nvidia_smi() -> Option<&'static str> {
+    for path in NVIDIA_SMI_PATHS {
+        if std::path::Path::new(path).exists() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Execute nvidia-smi with timeout protection
+/// Returns None if command fails, times out, or nvidia-smi is not available
+fn run_nvidia_smi_with_timeout(args: &[&str]) -> Option<String> {
+    let nvidia_smi = find_nvidia_smi()?;
+    
+    // Use timeout command to prevent nvidia-smi from hanging
+    // This is more reliable than Rust-side timeout for process hangs
+    let output = Command::new("timeout")
+        .arg(format!("{}s", NVIDIA_SMI_TIMEOUT_SECS))
+        .arg(nvidia_smi)
+        .args(args)
+        .output();
+
+    match output {
+        Ok(result) => {
+            if result.status.success() {
+                String::from_utf8(result.stdout).ok()
+            } else {
+                let exit_code = result.status.code().unwrap_or(-1);
+                if exit_code == 124 {
+                    warn!("nvidia-smi command timed out after {}s", NVIDIA_SMI_TIMEOUT_SECS);
+                } else {
+                    warn!("nvidia-smi failed with exit code: {}", exit_code);
+                }
+                None
+            }
+        }
+        Err(e) => {
+            // timeout command might not exist, try direct execution with spawn
+            warn!("Failed to run timeout wrapper: {}, trying direct execution", e);
+            run_nvidia_smi_direct(nvidia_smi, args)
+        }
+    }
+}
+
+/// Direct nvidia-smi execution without timeout wrapper
+/// Used as fallback when timeout command is not available
+fn run_nvidia_smi_direct(nvidia_smi: &str, args: &[&str]) -> Option<String> {
+    use std::process::Stdio;
+    use std::thread;
+    
+    let mut child = Command::new(nvidia_smi)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+
+    let timeout = Duration::from_secs(NVIDIA_SMI_TIMEOUT_SECS);
+    let start = std::time::Instant::now();
+
+    // Poll for completion with timeout
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if status.success() {
+                    let output = child.wait_with_output().ok()?;
+                    return String::from_utf8(output.stdout).ok();
+                } else {
+                    warn!("nvidia-smi failed with status: {}", status);
+                    return None;
+                }
+            }
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    warn!("nvidia-smi timed out after {}s, killing process", NVIDIA_SMI_TIMEOUT_SECS);
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => {
+                warn!("Failed to wait for nvidia-smi: {}", e);
+                return None;
+            }
+        }
+    }
+}
+
+/// Parse GPU information from nvidia-smi CSV output
+fn parse_nvidia_smi_output(output: &str) -> Vec<GpuInfo> {
+    let mut gpus = Vec::new();
+
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let fields: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+        if fields.len() < 10 {
+            warn!("Invalid nvidia-smi output line: {}", line);
+            continue;
+        }
+
+        // Parse each field, using 0 as default for numeric fields
+        let index = fields[0].parse::<u32>().unwrap_or(0);
+        let name = fields[1].to_string();
+        let uuid = fields[2].to_string();
+        let memory_total = parse_mib_value(fields[3]);
+        let memory_used = parse_mib_value(fields[4]);
+        let memory_free = parse_mib_value(fields[5]);
+        let utilization = parse_percent_value(fields[6]);
+        let temperature = parse_int_value(fields[7]);
+        let power_draw = parse_watts_value(fields[8]);
+        let power_limit = parse_watts_value(fields[9]);
+
+        gpus.push(GpuInfo {
+            index,
+            name,
+            uuid,
+            memory_total_mb: memory_total,
+            memory_used_mb: memory_used,
+            memory_free_mb: memory_free,
+            utilization_percent: utilization,
+            temperature_celsius: temperature,
+            power_draw_watts: power_draw,
+            power_limit_watts: power_limit,
+        });
+    }
+
+    gpus
+}
+
+/// Parse MiB value (e.g., "24576" or "24576 MiB")
+fn parse_mib_value(s: &str) -> u64 {
+    let s = s.trim().replace(" MiB", "").replace(" MB", "");
+    s.parse::<u64>().unwrap_or(0)
+}
+
+/// Parse percentage value (e.g., "45" or "45 %")
+fn parse_percent_value(s: &str) -> u32 {
+    let s = s.trim().replace(" %", "").replace("%", "");
+    // Handle [N/A] or other non-numeric values
+    if s.contains("N/A") || s.contains("[") {
+        return 0;
+    }
+    s.parse::<u32>().unwrap_or(0)
+}
+
+/// Parse integer value
+fn parse_int_value(s: &str) -> u32 {
+    let s = s.trim();
+    if s.contains("N/A") || s.contains("[") {
+        return 0;
+    }
+    s.parse::<u32>().unwrap_or(0)
+}
+
+/// Parse watts value (e.g., "150.00" or "150.00 W")
+fn parse_watts_value(s: &str) -> u32 {
+    let s = s.trim().replace(" W", "");
+    if s.contains("N/A") || s.contains("[") {
+        return 0;
+    }
+    // Parse as float and convert to integer
+    s.parse::<f64>().map(|v| v as u32).unwrap_or(0)
+}
+
+/// Collect GPU information using nvidia-smi command
 fn collect_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
     let mut gpu_devices = Vec::new();
     let mut gpu_type_counts: HashMap<String, u32> = HashMap::new();
@@ -352,61 +533,37 @@ fn collect_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
         return (gpu_devices, gpu_type_counts);
     }
 
-    // LD_LIBRARY_PATH is set at program startup in main.rs
-    match Nvml::init() {
-        Ok(nvml) => {
-            let device_count = nvml.device_count().unwrap_or(0);
+    // Check if nvidia-smi is available
+    if find_nvidia_smi().is_none() {
+        info!("nvidia-smi not found, skipping GPU metrics collection");
+        return (gpu_devices, gpu_type_counts);
+    }
 
-            for i in 0..device_count {
-                match nvml.device_by_index(i) {
-                    Ok(device) => {
-                        let name = device.name().unwrap_or_else(|_| "Unknown GPU".to_string());
-                        let uuid = device.uuid().unwrap_or_else(|_| format!("GPU-{}", i));
+    // Query GPU information using nvidia-smi
+    // Format: index, name, uuid, memory.total, memory.used, memory.free, 
+    //         utilization.gpu, temperature.gpu, power.draw, power.limit
+    let query_args = [
+        "--query-gpu=index,name,uuid,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,power.limit",
+        "--format=csv,noheader,nounits",
+    ];
 
-                        let memory_info = device.memory_info().ok();
-                        let utilization = device.utilization_rates().ok();
-                        let temperature = device
-                            .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
-                            .ok();
-                        let power_draw = device.power_usage().ok();
-                        let power_limit = device.enforced_power_limit().ok();
+    match run_nvidia_smi_with_timeout(&query_args) {
+        Some(output) => {
+            gpu_devices = parse_nvidia_smi_output(&output);
+            
+            // Count GPU types
+            for gpu in &gpu_devices {
+                *gpu_type_counts.entry(gpu.name.clone()).or_insert(0) += 1;
+            }
 
-                        let gpu = GpuInfo {
-                            index: i,
-                            name: name.clone(),
-                            uuid,
-                            memory_total_mb: memory_info
-                                .as_ref()
-                                .map(|m| m.total / (1024 * 1024))
-                                .unwrap_or(0),
-                            memory_used_mb: memory_info
-                                .as_ref()
-                                .map(|m| m.used / (1024 * 1024))
-                                .unwrap_or(0),
-                            memory_free_mb: memory_info
-                                .as_ref()
-                                .map(|m| m.free / (1024 * 1024))
-                                .unwrap_or(0),
-                            utilization_percent: utilization.map(|u| u.gpu).unwrap_or(0),
-                            temperature_celsius: temperature.unwrap_or(0),
-                            power_draw_watts: power_draw.map(|p| p / 1000).unwrap_or(0), // mW to W
-                            power_limit_watts: power_limit.map(|p| p / 1000).unwrap_or(0), // mW to W
-                        };
-
-                        *gpu_type_counts.entry(name).or_insert(0) += 1;
-                        gpu_devices.push(gpu);
-                    }
-                    Err(e) => {
-                        warn!("Failed to get GPU device {}: {}", i, e);
-                    }
-                }
+            if gpu_devices.is_empty() {
+                warn!("nvidia-smi returned no GPU data");
+            } else {
+                info!("Collected metrics for {} GPU(s)", gpu_devices.len());
             }
         }
-        Err(e) => {
-            warn!(
-                "Failed to initialize NVML: {}. GPU metrics will be unavailable.",
-                e
-            );
+        None => {
+            warn!("Failed to get GPU metrics from nvidia-smi");
         }
     }
 

@@ -37,7 +37,8 @@ FROM reg.deeproute.ai/deeproute-public/zzh/alpine:3.23
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
 
 # Install minimal runtime dependencies
-RUN apk add --no-cache ca-certificates
+# coreutils provides 'timeout' command for nvidia-smi timeout handling
+RUN apk add --no-cache ca-certificates coreutils
 
 # Create non-root user
 RUN addgroup -g 1000 appgroup && \

@@ -53,9 +53,9 @@ clean:
 	$(CARGO) clean
 	rm -rf target/
 
-## docker-build: Build and push Docker image for amd64 (musl dynamic, supports dlopen)
+## docker-build: Build and push Docker image for amd64 (uses nvidia-smi, no .so dependency)
 docker-build:
-	@echo "Building Docker image with musl dynamic compilation..."
+	@echo "Building Docker image..."
 	docker buildx build \
 		--platform linux/amd64 \
 		-t $(DOCKER_REPO):$(DOCKER_TAG) \

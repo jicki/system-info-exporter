@@ -43,10 +43,13 @@ spec:
             - name: host-os-release
               mountPath: /host/etc/os-release
               readOnly: true
-            # Mount NVIDIA libraries from host
-            # Program will load libnvidia-ml.so directly from this path
-            - name: nvidia-libs
-              mountPath: /host/nvidia-libs
+            # Mount nvidia-smi from host for GPU metrics collection
+            - name: nvidia-smi
+              mountPath: /host/nvidia-smi
+              readOnly: true
+            # Mount NVIDIA device files for GPU detection
+            - name: nvidia-dev
+              mountPath: /dev
               readOnly: true
           resources:
             requests:
@@ -90,10 +93,14 @@ spec:
           hostPath:
             path: /etc/os-release
             type: File
-        # Mount host's library directory for NVIDIA libs access
-        # Program loads libnvidia-ml.so directly using libloading
-        # On CPU nodes, this directory exists but doesn't have NVIDIA libs (safe)
-        - name: nvidia-libs
+        # Mount nvidia-smi binary from host
+        # On CPU nodes, this file doesn't exist (safe - program handles gracefully)
+        - name: nvidia-smi
           hostPath:
-            path: /usr/lib/x86_64-linux-gnu
+            path: /usr/bin/nvidia-smi
+            type: FileOrCreate
+        # Mount /dev for NVIDIA device detection (/dev/nvidiactl, /dev/nvidia0, etc.)
+        - name: nvidia-dev
+          hostPath:
+            path: /dev
             type: Directory
