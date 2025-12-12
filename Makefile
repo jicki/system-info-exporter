@@ -50,16 +50,36 @@ clean:
 	$(CARGO) clean
 	rm -rf target/
 
-## docker-build: Build and push Docker image (optimized, 70% faster)
+## docker-build: Build and push multi-arch Docker image (amd64 and arm64)
 docker-build:
-	@echo "Building optimized Docker image with BuildKit..."
+	@echo "Building multi-architecture Docker image with BuildKit..."
+	docker buildx build \
+		--platform linux/amd64,linux/arm64 \
+		-t $(DOCKER_REPO):$(DOCKER_TAG) \
+		-t $(DOCKER_REPO):latest \
+		--push \
+		.
+	@echo "Multi-arch build and push complete!"
+
+## docker-build-amd64: Build and push Docker image for amd64 only (for x86_64 K8s nodes)
+docker-build-amd64:
+	@echo "Building Docker image for amd64 architecture..."
+	docker buildx build \
+		--platform linux/amd64 \
+		-t $(DOCKER_REPO):$(DOCKER_TAG) \
+		-t $(DOCKER_REPO):latest \
+		--push \
+		.
+	@echo "AMD64 build and push complete!"
+
+## docker-build-local: Build Docker image for local architecture only (no push)
+docker-build-local:
+	@echo "Building Docker image for local architecture..."
 	DOCKER_BUILDKIT=$(DOCKER_BUILDKIT) docker build \
 		-t $(DOCKER_REPO):$(DOCKER_TAG) \
 		-t $(DOCKER_REPO):latest \
 		.
-	@echo "Build complete! Pushing to registry..."
-	docker push $(DOCKER_REPO):$(DOCKER_TAG)
-	docker push $(DOCKER_REPO):latest
+	@echo "Local build complete!"
 
 ## docker-run: Run Docker container locally
 docker-run:
