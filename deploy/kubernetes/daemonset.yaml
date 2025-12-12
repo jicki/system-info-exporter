@@ -5,7 +5,7 @@ metadata:
   namespace: system-info-exporter
   labels:
     app.kubernetes.io/name: system-info-exporter
-    app.kubernetes.io/version: "1.0.3"
+    app.kubernetes.io/version: "1.0.5"
 spec:
   selector:
     matchLabels:
@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: system-info-exporter
-          image: reg.deeproute.ai/deeproute-public/zzh/system-info-exporter:1.0.3
+          image: reg.deeproute.ai/deeproute-public/zzh/system-info-exporter:1.0.5
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -43,9 +43,9 @@ spec:
             - name: host-os-release
               mountPath: /host/etc/os-release
               readOnly: true
-            # Mount NVIDIA device files for GPU detection
-            - name: nvidia-dev
-              mountPath: /dev
+            # Mount /proc/driver for NVIDIA GPU detection
+            - name: proc-driver
+              mountPath: /proc/driver
               readOnly: true
           resources:
             requests:
@@ -89,8 +89,8 @@ spec:
           hostPath:
             path: /etc/os-release
             type: File
-        # Mount /dev for NVIDIA device detection (/dev/nvidiactl, /dev/nvidia0, etc.)
-        - name: nvidia-dev
+        # Mount /proc/driver for NVIDIA GPU detection (/proc/driver/nvidia/version)
+        - name: proc-driver
           hostPath:
-            path: /dev
+            path: /proc/driver
             type: Directory
