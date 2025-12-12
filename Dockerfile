@@ -21,11 +21,12 @@ RUN mkdir -p /usr/local/cuda/include && \
 
 WORKDIR /app
 
-# Copy manifests and lock file
-COPY Cargo.toml Cargo.lock ./
+# Copy manifest
+COPY Cargo.toml ./
 
 # Create dummy src to cache dependencies
 # This layer will be cached unless dependencies change
+# Note: Cargo.lock will be generated if it doesn't exist
 RUN mkdir -p src && \
     echo "fn main() {}" > src/main.rs && \
     cargo build --release && \
