@@ -59,12 +59,14 @@ RUN groupadd -g 1000 appgroup && \
 
 WORKDIR /app
 
-# Copy binary and config from builder
+# Copy binary, config and entrypoint from builder
 COPY --from=builder /app/target/release/system-info-exporter /app/
 COPY --from=builder /app/config /app/config
+COPY entrypoint.sh /app/
 
-# Set ownership
-RUN chown -R appuser:appgroup /app
+# Set ownership and permissions
+RUN chown -R appuser:appgroup /app && \
+    chmod +x /app/entrypoint.sh
 
 USER appuser
 
@@ -74,4 +76,4 @@ ENV RUST_LOG=info
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=utility
 
-ENTRYPOINT ["/app/system-info-exporter"]
+ENTRYPOINT ["/app/entrypoint.sh"]
