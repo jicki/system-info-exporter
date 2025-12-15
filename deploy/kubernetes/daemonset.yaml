@@ -50,11 +50,10 @@ spec:
             - name: host-proc-driver
               mountPath: /host/proc/driver
               readOnly: true
-            # Mount nvidia-uvm devices explicitly
-            - name: nvidia-uvm
-              mountPath: /dev/nvidia-uvm
-            - name: nvidia-uvm-tools
-              mountPath: /dev/nvidia-uvm-tools
+            # Mount host's /dev for access to all NVIDIA devices
+            - name: host-dev
+              mountPath: /dev
+              readOnly: false
           resources:
             requests:
               cpu: 50m
@@ -99,13 +98,9 @@ spec:
         - name: host-proc-driver
           hostPath:
             path: /proc/driver
+            type: DirectoryOrCreate
+        # Mount host's /dev for access to all devices (including NVIDIA)
+        - name: host-dev
+          hostPath:
+            path: /dev
             type: Directory
-        # NVIDIA UVM devices for NVML
-        - name: nvidia-uvm
-          hostPath:
-            path: /dev/nvidia-uvm
-            type: CharDevice
-        - name: nvidia-uvm-tools
-          hostPath:
-            path: /dev/nvidia-uvm-tools
-            type: CharDevice
