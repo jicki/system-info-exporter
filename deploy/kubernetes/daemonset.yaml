@@ -15,8 +15,8 @@ spec:
       labels:
         app.kubernetes.io/name: system-info-exporter
     spec:
-      # Use NVIDIA runtime to inject nvidia-smi and libraries
-      runtimeClassName: nvidia
+      # Run as root to access GPU devices
+      hostPID: true
       containers:
         - name: system-info-exporter
           image: reg.deeproute.ai/deeproute-public/zzh/system-info-exporter:1.0.6
@@ -29,7 +29,6 @@ spec:
             - name: RUST_LOG
               value: "info"
             # NVIDIA environment variables for Container Toolkit
-            # Request all GPUs and all capabilities for full NVML access
             - name: NVIDIA_VISIBLE_DEVICES
               value: "all"
             - name: NVIDIA_DRIVER_CAPABILITIES
@@ -78,9 +77,10 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 3
           securityContext:
-            # Need privileged to access GPU devices properly
+            # Need privileged to access GPU devices
             privileged: true
-            readOnlyRootFilesystem: true
+            runAsUser: 0
+            runAsGroup: 0
       tolerations:
         # Allow scheduling on GPU nodes
         - key: nvidia.com/gpu
