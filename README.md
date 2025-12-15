@@ -159,6 +159,70 @@ port = 8080
 
 [metrics]
 collect_interval_secs = 15
+
+# Metrics collection settings
+# Set to false to disable specific metrics
+[metrics.enabled]
+# Node metrics
+node_info = true
+node_uptime = true
+
+# CPU metrics
+cpu_cores = true
+cpu_threads = true
+cpu_usage = true
+
+# Memory metrics
+memory_total = true
+memory_used = true
+memory_available = true
+memory_usage = true
+
+# GPU metrics (only collected on GPU nodes)
+gpu_count = true
+gpu_used_count = true
+gpu_type_count = true
+gpu_memory_total = true
+gpu_memory_used = true
+gpu_memory_free = true
+gpu_utilization = true
+gpu_temperature = true
+gpu_power_draw = true
+gpu_power_limit = true
+```
+
+### 自定义指标采集
+
+可以通过配置文件禁用不需要的指标，例如只采集 GPU 相关指标：
+
+```toml
+[metrics.enabled]
+# 禁用 Node 指标
+node_info = false
+node_uptime = false
+
+# 禁用 CPU 指标
+cpu_cores = false
+cpu_threads = false
+cpu_usage = false
+
+# 禁用 Memory 指标
+memory_total = false
+memory_used = false
+memory_available = false
+memory_usage = false
+
+# 只保留 GPU 指标
+gpu_count = true
+gpu_used_count = true
+gpu_type_count = true
+gpu_memory_total = true
+gpu_memory_used = true
+gpu_memory_free = true
+gpu_utilization = true
+gpu_temperature = true
+gpu_power_draw = true
+gpu_power_limit = true
 ```
 
 ## 项目结构

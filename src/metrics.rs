@@ -1,3 +1,4 @@
+use crate::config::MetricsEnabled;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
@@ -141,203 +142,241 @@ impl NodeMetrics {
         }
     }
 
-    pub fn to_prometheus(&self) -> String {
+    pub fn to_prometheus(&self, enabled: &MetricsEnabled) -> String {
         let mut output = String::new();
         let node = &self.node;
 
         // Node info
-        output.push_str("# HELP hw_node_info Node hardware information\n");
-        output.push_str("# TYPE hw_node_info gauge\n");
-        output.push_str(&format!(
-            "hw_node_info{{node=\"{}\",os=\"{}\",os_version=\"{}\",kernel=\"{}\",cpu_model=\"{}\"}} 1\n",
-            node,
-            self.os_name,
-            self.os_version,
-            self.kernel_version,
-            escape_label_value(&self.cpu_model)
-        ));
+        if enabled.node_info {
+            output.push_str("# HELP hw_node_info Node hardware information\n");
+            output.push_str("# TYPE hw_node_info gauge\n");
+            output.push_str(&format!(
+                "hw_node_info{{node=\"{}\",os=\"{}\",os_version=\"{}\",kernel=\"{}\",cpu_model=\"{}\"}} 1\n",
+                node,
+                self.os_name,
+                self.os_version,
+                self.kernel_version,
+                escape_label_value(&self.cpu_model)
+            ));
+        }
 
         // Uptime
-        output.push_str("# HELP hw_node_uptime_seconds Node uptime in seconds\n");
-        output.push_str("# TYPE hw_node_uptime_seconds counter\n");
-        output.push_str(&format!(
-            "hw_node_uptime_seconds{{node=\"{}\"}} {}\n",
-            node, self.uptime_secs
-        ));
+        if enabled.node_uptime {
+            output.push_str("# HELP hw_node_uptime_seconds Node uptime in seconds\n");
+            output.push_str("# TYPE hw_node_uptime_seconds counter\n");
+            output.push_str(&format!(
+                "hw_node_uptime_seconds{{node=\"{}\"}} {}\n",
+                node, self.uptime_secs
+            ));
+        }
 
         // CPU
-        output.push_str("# HELP hw_cpu_cores Number of physical CPU cores\n");
-        output.push_str("# TYPE hw_cpu_cores gauge\n");
-        output.push_str(&format!(
-            "hw_cpu_cores{{node=\"{}\"}} {}\n",
-            node, self.cpu_cores
-        ));
+        if enabled.cpu_cores {
+            output.push_str("# HELP hw_cpu_cores Number of physical CPU cores\n");
+            output.push_str("# TYPE hw_cpu_cores gauge\n");
+            output.push_str(&format!(
+                "hw_cpu_cores{{node=\"{}\"}} {}\n",
+                node, self.cpu_cores
+            ));
+        }
 
-        output.push_str("# HELP hw_cpu_threads Number of CPU threads\n");
-        output.push_str("# TYPE hw_cpu_threads gauge\n");
-        output.push_str(&format!(
-            "hw_cpu_threads{{node=\"{}\"}} {}\n",
-            node, self.cpu_threads
-        ));
+        if enabled.cpu_threads {
+            output.push_str("# HELP hw_cpu_threads Number of CPU threads\n");
+            output.push_str("# TYPE hw_cpu_threads gauge\n");
+            output.push_str(&format!(
+                "hw_cpu_threads{{node=\"{}\"}} {}\n",
+                node, self.cpu_threads
+            ));
+        }
 
-        output.push_str("# HELP hw_cpu_usage_percent CPU usage percentage\n");
-        output.push_str("# TYPE hw_cpu_usage_percent gauge\n");
-        output.push_str(&format!(
-            "hw_cpu_usage_percent{{node=\"{}\"}} {:.2}\n",
-            node, self.cpu_usage_percent
-        ));
+        if enabled.cpu_usage {
+            output.push_str("# HELP hw_cpu_usage_percent CPU usage percentage\n");
+            output.push_str("# TYPE hw_cpu_usage_percent gauge\n");
+            output.push_str(&format!(
+                "hw_cpu_usage_percent{{node=\"{}\"}} {:.2}\n",
+                node, self.cpu_usage_percent
+            ));
+        }
 
         // Memory
-        output.push_str("# HELP hw_memory_total_bytes Total memory in bytes\n");
-        output.push_str("# TYPE hw_memory_total_bytes gauge\n");
-        output.push_str(&format!(
-            "hw_memory_total_bytes{{node=\"{}\"}} {}\n",
-            node, self.memory_total_bytes
-        ));
+        if enabled.memory_total {
+            output.push_str("# HELP hw_memory_total_bytes Total memory in bytes\n");
+            output.push_str("# TYPE hw_memory_total_bytes gauge\n");
+            output.push_str(&format!(
+                "hw_memory_total_bytes{{node=\"{}\"}} {}\n",
+                node, self.memory_total_bytes
+            ));
+        }
 
-        output.push_str("# HELP hw_memory_used_bytes Used memory in bytes\n");
-        output.push_str("# TYPE hw_memory_used_bytes gauge\n");
-        output.push_str(&format!(
-            "hw_memory_used_bytes{{node=\"{}\"}} {}\n",
-            node, self.memory_used_bytes
-        ));
+        if enabled.memory_used {
+            output.push_str("# HELP hw_memory_used_bytes Used memory in bytes\n");
+            output.push_str("# TYPE hw_memory_used_bytes gauge\n");
+            output.push_str(&format!(
+                "hw_memory_used_bytes{{node=\"{}\"}} {}\n",
+                node, self.memory_used_bytes
+            ));
+        }
 
-        output.push_str("# HELP hw_memory_available_bytes Available memory in bytes\n");
-        output.push_str("# TYPE hw_memory_available_bytes gauge\n");
-        output.push_str(&format!(
-            "hw_memory_available_bytes{{node=\"{}\"}} {}\n",
-            node, self.memory_available_bytes
-        ));
+        if enabled.memory_available {
+            output.push_str("# HELP hw_memory_available_bytes Available memory in bytes\n");
+            output.push_str("# TYPE hw_memory_available_bytes gauge\n");
+            output.push_str(&format!(
+                "hw_memory_available_bytes{{node=\"{}\"}} {}\n",
+                node, self.memory_available_bytes
+            ));
+        }
 
-        output.push_str("# HELP hw_memory_usage_percent Memory usage percentage\n");
-        output.push_str("# TYPE hw_memory_usage_percent gauge\n");
-        output.push_str(&format!(
-            "hw_memory_usage_percent{{node=\"{}\"}} {:.2}\n",
-            node, self.memory_usage_percent
-        ));
+        if enabled.memory_usage {
+            output.push_str("# HELP hw_memory_usage_percent Memory usage percentage\n");
+            output.push_str("# TYPE hw_memory_usage_percent gauge\n");
+            output.push_str(&format!(
+                "hw_memory_usage_percent{{node=\"{}\"}} {:.2}\n",
+                node, self.memory_usage_percent
+            ));
+        }
 
         // GPU metrics only for nodes with GPUs
         if self.gpu_count > 0 {
             // GPU total count per node
-            output.push_str("# HELP hw_gpu_count Total number of GPUs per node\n");
-            output.push_str("# TYPE hw_gpu_count gauge\n");
-            output.push_str(&format!(
-                "hw_gpu_count{{node=\"{}\"}} {}\n",
-                node, self.gpu_count
-            ));
+            if enabled.gpu_count {
+                output.push_str("# HELP hw_gpu_count Total number of GPUs per node\n");
+                output.push_str("# TYPE hw_gpu_count gauge\n");
+                output.push_str(&format!(
+                    "hw_gpu_count{{node=\"{}\"}} {}\n",
+                    node, self.gpu_count
+                ));
+            }
 
             // GPU used count (GPUs with running compute processes)
-            output.push_str("# HELP hw_gpu_used_count Number of GPUs currently in use per node\n");
-            output.push_str("# TYPE hw_gpu_used_count gauge\n");
-            output.push_str(&format!(
-                "hw_gpu_used_count{{node=\"{}\"}} {}\n",
-                node, self.gpu_used_count
-            ));
+            if enabled.gpu_used_count {
+                output.push_str("# HELP hw_gpu_used_count Number of GPUs currently in use per node\n");
+                output.push_str("# TYPE hw_gpu_used_count gauge\n");
+                output.push_str(&format!(
+                    "hw_gpu_used_count{{node=\"{}\"}} {}\n",
+                    node, self.gpu_used_count
+                ));
+            }
 
             // GPU type counts per node
-            output.push_str("# HELP hw_gpu_type_count Number of GPUs by type per node\n");
-            output.push_str("# TYPE hw_gpu_type_count gauge\n");
-            for (gpu_type, count) in &self.gpu_type_counts {
-                output.push_str(&format!(
-                    "hw_gpu_type_count{{node=\"{}\",gpu_type=\"{}\"}} {}\n",
-                    node,
-                    escape_label_value(gpu_type),
-                    count
-                ));
+            if enabled.gpu_type_count {
+                output.push_str("# HELP hw_gpu_type_count Number of GPUs by type per node\n");
+                output.push_str("# TYPE hw_gpu_type_count gauge\n");
+                for (gpu_type, count) in &self.gpu_type_counts {
+                    output.push_str(&format!(
+                        "hw_gpu_type_count{{node=\"{}\",gpu_type=\"{}\"}} {}\n",
+                        node,
+                        escape_label_value(gpu_type),
+                        count
+                    ));
+                }
             }
         }
 
         // GPU device details
         if !self.gpu_devices.is_empty() {
-            output.push_str("# HELP hw_gpu_memory_total_bytes GPU total memory in bytes\n");
-            output.push_str("# TYPE hw_gpu_memory_total_bytes gauge\n");
-            for gpu in &self.gpu_devices {
-                output.push_str(&format!(
-                    "hw_gpu_memory_total_bytes{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
-                    node,
-                    gpu.index,
-                    escape_label_value(&gpu.name),
-                    gpu.uuid,
-                    gpu.memory_total_mb as u64 * 1024 * 1024
-                ));
+            if enabled.gpu_memory_total {
+                output.push_str("# HELP hw_gpu_memory_total_bytes GPU total memory in bytes\n");
+                output.push_str("# TYPE hw_gpu_memory_total_bytes gauge\n");
+                for gpu in &self.gpu_devices {
+                    output.push_str(&format!(
+                        "hw_gpu_memory_total_bytes{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
+                        node,
+                        gpu.index,
+                        escape_label_value(&gpu.name),
+                        gpu.uuid,
+                        gpu.memory_total_mb as u64 * 1024 * 1024
+                    ));
+                }
             }
 
-            output.push_str("# HELP hw_gpu_memory_used_bytes GPU used memory in bytes\n");
-            output.push_str("# TYPE hw_gpu_memory_used_bytes gauge\n");
-            for gpu in &self.gpu_devices {
-                output.push_str(&format!(
-                    "hw_gpu_memory_used_bytes{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
-                    node,
-                    gpu.index,
-                    escape_label_value(&gpu.name),
-                    gpu.uuid,
-                    gpu.memory_used_mb as u64 * 1024 * 1024
-                ));
+            if enabled.gpu_memory_used {
+                output.push_str("# HELP hw_gpu_memory_used_bytes GPU used memory in bytes\n");
+                output.push_str("# TYPE hw_gpu_memory_used_bytes gauge\n");
+                for gpu in &self.gpu_devices {
+                    output.push_str(&format!(
+                        "hw_gpu_memory_used_bytes{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
+                        node,
+                        gpu.index,
+                        escape_label_value(&gpu.name),
+                        gpu.uuid,
+                        gpu.memory_used_mb as u64 * 1024 * 1024
+                    ));
+                }
             }
 
-            output.push_str("# HELP hw_gpu_memory_free_bytes GPU free memory in bytes\n");
-            output.push_str("# TYPE hw_gpu_memory_free_bytes gauge\n");
-            for gpu in &self.gpu_devices {
-                output.push_str(&format!(
-                    "hw_gpu_memory_free_bytes{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
-                    node,
-                    gpu.index,
-                    escape_label_value(&gpu.name),
-                    gpu.uuid,
-                    gpu.memory_free_mb as u64 * 1024 * 1024
-                ));
+            if enabled.gpu_memory_free {
+                output.push_str("# HELP hw_gpu_memory_free_bytes GPU free memory in bytes\n");
+                output.push_str("# TYPE hw_gpu_memory_free_bytes gauge\n");
+                for gpu in &self.gpu_devices {
+                    output.push_str(&format!(
+                        "hw_gpu_memory_free_bytes{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
+                        node,
+                        gpu.index,
+                        escape_label_value(&gpu.name),
+                        gpu.uuid,
+                        gpu.memory_free_mb as u64 * 1024 * 1024
+                    ));
+                }
             }
 
-            output.push_str("# HELP hw_gpu_utilization_percent GPU utilization percentage\n");
-            output.push_str("# TYPE hw_gpu_utilization_percent gauge\n");
-            for gpu in &self.gpu_devices {
-                output.push_str(&format!(
-                    "hw_gpu_utilization_percent{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
-                    node,
-                    gpu.index,
-                    escape_label_value(&gpu.name),
-                    gpu.uuid,
-                    gpu.utilization_percent
-                ));
+            if enabled.gpu_utilization {
+                output.push_str("# HELP hw_gpu_utilization_percent GPU utilization percentage\n");
+                output.push_str("# TYPE hw_gpu_utilization_percent gauge\n");
+                for gpu in &self.gpu_devices {
+                    output.push_str(&format!(
+                        "hw_gpu_utilization_percent{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
+                        node,
+                        gpu.index,
+                        escape_label_value(&gpu.name),
+                        gpu.uuid,
+                        gpu.utilization_percent
+                    ));
+                }
             }
 
-            output.push_str("# HELP hw_gpu_temperature_celsius GPU temperature in Celsius\n");
-            output.push_str("# TYPE hw_gpu_temperature_celsius gauge\n");
-            for gpu in &self.gpu_devices {
-                output.push_str(&format!(
-                    "hw_gpu_temperature_celsius{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
-                    node,
-                    gpu.index,
-                    escape_label_value(&gpu.name),
-                    gpu.uuid,
-                    gpu.temperature_celsius
-                ));
+            if enabled.gpu_temperature {
+                output.push_str("# HELP hw_gpu_temperature_celsius GPU temperature in Celsius\n");
+                output.push_str("# TYPE hw_gpu_temperature_celsius gauge\n");
+                for gpu in &self.gpu_devices {
+                    output.push_str(&format!(
+                        "hw_gpu_temperature_celsius{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
+                        node,
+                        gpu.index,
+                        escape_label_value(&gpu.name),
+                        gpu.uuid,
+                        gpu.temperature_celsius
+                    ));
+                }
             }
 
-            output.push_str("# HELP hw_gpu_power_draw_watts GPU power draw in watts\n");
-            output.push_str("# TYPE hw_gpu_power_draw_watts gauge\n");
-            for gpu in &self.gpu_devices {
-                output.push_str(&format!(
-                    "hw_gpu_power_draw_watts{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
-                    node,
-                    gpu.index,
-                    escape_label_value(&gpu.name),
-                    gpu.uuid,
-                    gpu.power_draw_watts
-                ));
+            if enabled.gpu_power_draw {
+                output.push_str("# HELP hw_gpu_power_draw_watts GPU power draw in watts\n");
+                output.push_str("# TYPE hw_gpu_power_draw_watts gauge\n");
+                for gpu in &self.gpu_devices {
+                    output.push_str(&format!(
+                        "hw_gpu_power_draw_watts{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
+                        node,
+                        gpu.index,
+                        escape_label_value(&gpu.name),
+                        gpu.uuid,
+                        gpu.power_draw_watts
+                    ));
+                }
             }
 
-            output.push_str("# HELP hw_gpu_power_limit_watts GPU power limit in watts\n");
-            output.push_str("# TYPE hw_gpu_power_limit_watts gauge\n");
-            for gpu in &self.gpu_devices {
-                output.push_str(&format!(
-                    "hw_gpu_power_limit_watts{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
-                    node,
-                    gpu.index,
-                    escape_label_value(&gpu.name),
-                    gpu.uuid,
-                    gpu.power_limit_watts
-                ));
+            if enabled.gpu_power_limit {
+                output.push_str("# HELP hw_gpu_power_limit_watts GPU power limit in watts\n");
+                output.push_str("# TYPE hw_gpu_power_limit_watts gauge\n");
+                for gpu in &self.gpu_devices {
+                    output.push_str(&format!(
+                        "hw_gpu_power_limit_watts{{node=\"{}\",gpu_index=\"{}\",gpu_name=\"{}\",gpu_uuid=\"{}\"}} {}\n",
+                        node,
+                        gpu.index,
+                        escape_label_value(&gpu.name),
+                        gpu.uuid,
+                        gpu.power_limit_watts
+                    ));
+                }
             }
         }
 
