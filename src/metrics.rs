@@ -407,20 +407,18 @@ fn run_nvidia_smi_with_timeout(args: &[&str]) -> Option<String> {
                 String::from_utf8(result.stdout).ok()
             } else {
                 let exit_code = result.status.code().unwrap_or(-1);
+                let stderr = String::from_utf8_lossy(&result.stderr);
+                let stderr_msg = if stderr.is_empty() { "(empty)" } else { stderr.trim() };
+
                 if exit_code == 124 {
                     warn!("nvidia-smi command timed out after {}s", NVIDIA_SMI_TIMEOUT_SECS);
-                } else if exit_code == 127 {
-                    // Exit code 127 means command not found or library loading failed
-                    // Log more details for debugging
-                    let stderr = String::from_utf8_lossy(&result.stderr);
-                    warn!(
-                        "nvidia-smi failed with exit code 127 (command not found or library error). \
-                         Path: {}, stderr: {}",
-                        nvidia_smi,
-                        if stderr.is_empty() { "(empty)" } else { stderr.trim() }
-                    );
                 } else {
-                    warn!("nvidia-smi failed with exit code: {}", exit_code);
+                    warn!(
+                        "nvidia-smi failed with exit code: {}. Path: {}, stderr: {}",
+                        exit_code,
+                        nvidia_smi,
+                        stderr_msg
+                    );
                 }
                 None
             }
