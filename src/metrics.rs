@@ -392,13 +392,24 @@ fn run_nvidia_smi_with_timeout(args: &[&str]) -> Option<String> {
         return run_nvidia_smi_direct(nvidia_smi, args);
     }
 
+    // Build nvidia-smi command with arguments
+    let nvidia_args = args.join(" ");
+
+    // Use shell wrapper so LD_LIBRARY_PATH only affects nvidia-smi, not timeout
+    // This avoids glibc version conflicts between container and host
+    let shell_cmd = format!(
+        "LD_LIBRARY_PATH={} {} {}",
+        ld_library_path,
+        nvidia_smi,
+        nvidia_args
+    );
+
     // Use timeout command to prevent nvidia-smi from hanging
-    // This is more reliable than Rust-side timeout for process hangs
     let output = Command::new("timeout")
         .arg(format!("{}s", NVIDIA_SMI_TIMEOUT_SECS))
-        .arg(nvidia_smi)
-        .args(args)
-        .env("LD_LIBRARY_PATH", ld_library_path)
+        .arg("sh")
+        .arg("-c")
+        .arg(&shell_cmd)
         .output();
 
     match output {
