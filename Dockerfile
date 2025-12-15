@@ -1,5 +1,5 @@
 # Build stage - use Rust Debian for glibc compatibility with host nvidia libraries
-FROM reg.deeproute.ai/deeproute-public/zzh/rust:1.92-silm-bookworm AS builder
+FROM reg.deeproute.ai/deeproute-public/zzh/rust:1.92-slim-bookworm AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
