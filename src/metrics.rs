@@ -212,16 +212,28 @@ impl NodeMetrics {
             node, self.memory_usage_percent
         ));
 
-        // GPU total count (without node label for cluster-level aggregation)
-        output.push_str("# HELP hw_gpu_count Total number of GPUs (cluster-level aggregation)\n");
-        output.push_str("# TYPE hw_gpu_count gauge\n");
-        output.push_str(&format!(
-            "hw_gpu_count {}\n",
-            self.gpu_count
-        ));
+        // GPU metrics only for nodes with GPUs
+        if self.gpu_count > 0 {
+            // GPU total count per node
+            output.push_str("# HELP hw_gpu_count Total number of GPUs per node\n");
+            output.push_str("# TYPE hw_gpu_count gauge\n");
+            output.push_str(&format!(
+                "hw_gpu_count{{node=\"{}\"}} {}\n",
+                node, self.gpu_count
+            ));
 
-        // GPU type counts per node
-        if !self.gpu_type_counts.is_empty() {
+            // GPU used count (GPUs with utilization > 0 or memory used > 0)
+            let gpu_used_count = self.gpu_devices.iter()
+                .filter(|gpu| gpu.utilization_percent > 0 || gpu.memory_used_mb > 0)
+                .count();
+            output.push_str("# HELP hw_gpu_used_count Number of GPUs currently in use per node\n");
+            output.push_str("# TYPE hw_gpu_used_count gauge\n");
+            output.push_str(&format!(
+                "hw_gpu_used_count{{node=\"{}\"}} {}\n",
+                node, gpu_used_count
+            ));
+
+            // GPU type counts per node
             output.push_str("# HELP hw_gpu_type_count Number of GPUs by type per node\n");
             output.push_str("# TYPE hw_gpu_type_count gauge\n");
             for (gpu_type, count) in &self.gpu_type_counts {

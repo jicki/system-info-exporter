@@ -92,7 +92,8 @@ kubectl apply -f deploy/kubernetes/
 
 | 指标名 | 类型 | 说明 |
 |--------|------|------|
-| `hw_gpu_count` | gauge | GPU 总数（集群级聚合，无 node 标签） |
+| `hw_gpu_count` | gauge | GPU 总数（仅 GPU 节点输出） |
+| `hw_gpu_used_count` | gauge | 正在使用的 GPU 数量（utilization > 0 或 memory_used > 0） |
 | `hw_gpu_type_count` | gauge | 按节点和型号统计 GPU 数量 |
 | `hw_gpu_memory_total_bytes` | gauge | GPU 显存总量（字节） |
 | `hw_gpu_memory_used_bytes` | gauge | GPU 已用显存（字节） |
@@ -117,9 +118,13 @@ hw_cpu_cores{node="gpu-node-01"} 48
 # TYPE hw_memory_total_bytes gauge
 hw_memory_total_bytes{node="gpu-node-01"} 270582939648
 
-# HELP hw_gpu_count Total number of GPUs (cluster-level aggregation)
+# HELP hw_gpu_count Total number of GPUs per node
 # TYPE hw_gpu_count gauge
-hw_gpu_count 8
+hw_gpu_count{node="gpu-node-01"} 8
+
+# HELP hw_gpu_used_count Number of GPUs currently in use per node
+# TYPE hw_gpu_used_count gauge
+hw_gpu_used_count{node="gpu-node-01"} 4
 
 # HELP hw_gpu_type_count Number of GPUs by type per node
 # TYPE hw_gpu_type_count gauge
