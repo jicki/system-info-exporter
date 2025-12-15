@@ -55,8 +55,11 @@ pub struct NodeMetrics {
 
 impl NodeMetrics {
     pub fn collect() -> Self {
-        let mut sys = System::new_all();
-        sys.refresh_all();
+        // Only refresh what we need, avoid collecting all processes
+        // This is important when hostPID is enabled as it would see all host processes
+        let mut sys = System::new();
+        sys.refresh_memory();
+        sys.refresh_cpu_all();
 
         let memory_total = sys.total_memory();
         let memory_used = sys.used_memory();
