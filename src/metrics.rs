@@ -2,12 +2,18 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
-use std::time::Duration;
+use std::sync::RwLock;
+use std::time::{Duration, Instant};
 use sysinfo::System;
 use tracing::{info, warn};
 
 /// Timeout for nvidia-smi command execution (in seconds)
 const NVIDIA_SMI_TIMEOUT_SECS: u64 = 5;
+
+/// Maximum age of cached GPU data before it's considered stale (in seconds)
+/// If nvidia-smi fails and cache is older than this, we still return cached data
+/// but log a warning
+const GPU_CACHE_MAX_AGE_SECS: u64 = 300; // 5 minutes
 
 /// Path to nvidia-smi binary
 /// Prefer container paths (injected by NVIDIA Container Toolkit) over host-mounted paths
@@ -17,6 +23,29 @@ const NVIDIA_SMI_PATHS: &[&str] = &[
     "/usr/local/bin/nvidia-smi",     // Alternative container path
     "/host/usr/bin/nvidia-smi",      // Host-mounted fallback (may not work due to glibc mismatch)
 ];
+
+/// Cached GPU information to prevent data loss when nvidia-smi hangs or fails
+struct GpuCache {
+    devices: Vec<GpuInfo>,
+    type_counts: HashMap<String, u32>,
+    last_update: Instant,
+    last_success: bool,
+}
+
+impl Default for GpuCache {
+    fn default() -> Self {
+        Self {
+            devices: Vec::new(),
+            type_counts: HashMap::new(),
+            last_update: Instant::now(),
+            last_success: false,
+        }
+    }
+}
+
+lazy_static::lazy_static! {
+    static ref GPU_CACHE: RwLock<GpuCache> = RwLock::new(GpuCache::default());
+}
 
 #[derive(Debug, Serialize, Clone)]
 pub struct GpuInfo {
@@ -595,24 +624,22 @@ fn parse_watts_value(s: &str) -> u32 {
 }
 
 /// Collect GPU information using nvidia-smi command
+/// Uses caching to prevent data loss when nvidia-smi hangs or fails
 fn collect_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
-    let mut gpu_devices = Vec::new();
-    let mut gpu_type_counts: HashMap<String, u32> = HashMap::new();
-
     // Early return if no NVIDIA GPU hardware detected
     if !has_nvidia_gpu() {
         info!("No NVIDIA GPU hardware detected, skipping GPU metrics collection");
-        return (gpu_devices, gpu_type_counts);
+        return (Vec::new(), HashMap::new());
     }
 
     // Check if nvidia-smi is available
     if find_nvidia_smi().is_none() {
         info!("nvidia-smi not found, skipping GPU metrics collection");
-        return (gpu_devices, gpu_type_counts);
+        return (Vec::new(), HashMap::new());
     }
 
     // Query GPU information using nvidia-smi
-    // Format: index, name, uuid, memory.total, memory.used, memory.free, 
+    // Format: index, name, uuid, memory.total, memory.used, memory.free,
     //         utilization.gpu, temperature.gpu, power.draw, power.limit
     let query_args = [
         "--query-gpu=index,name,uuid,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,power.limit",
@@ -621,25 +648,66 @@ fn collect_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
 
     match run_nvidia_smi_with_timeout(&query_args) {
         Some(output) => {
-            gpu_devices = parse_nvidia_smi_output(&output);
-            
+            let gpu_devices = parse_nvidia_smi_output(&output);
+
+            if gpu_devices.is_empty() {
+                warn!("nvidia-smi returned no GPU data, using cached data");
+                return get_cached_gpu_info();
+            }
+
             // Count GPU types
+            let mut gpu_type_counts: HashMap<String, u32> = HashMap::new();
             for gpu in &gpu_devices {
                 *gpu_type_counts.entry(gpu.name.clone()).or_insert(0) += 1;
             }
 
-            if gpu_devices.is_empty() {
-                warn!("nvidia-smi returned no GPU data");
-            } else {
-                info!("Collected metrics for {} GPU(s)", gpu_devices.len());
+            info!("Collected metrics for {} GPU(s)", gpu_devices.len());
+
+            // Update cache with successful data
+            if let Ok(mut cache) = GPU_CACHE.write() {
+                cache.devices = gpu_devices.clone();
+                cache.type_counts = gpu_type_counts.clone();
+                cache.last_update = Instant::now();
+                cache.last_success = true;
             }
+
+            (gpu_devices, gpu_type_counts)
         }
         None => {
-            warn!("Failed to get GPU metrics from nvidia-smi");
+            warn!("Failed to get GPU metrics from nvidia-smi, using cached data");
+            get_cached_gpu_info()
         }
     }
+}
 
-    (gpu_devices, gpu_type_counts)
+/// Get cached GPU info, with staleness warning
+fn get_cached_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
+    if let Ok(cache) = GPU_CACHE.read() {
+        let age_secs = cache.last_update.elapsed().as_secs();
+
+        if cache.devices.is_empty() {
+            warn!("No cached GPU data available");
+            return (Vec::new(), HashMap::new());
+        }
+
+        if age_secs > GPU_CACHE_MAX_AGE_SECS {
+            warn!(
+                "Using stale GPU cache data ({}s old, max {}s)",
+                age_secs, GPU_CACHE_MAX_AGE_SECS
+            );
+        } else {
+            info!(
+                "Using cached GPU data ({}s old) for {} GPU(s)",
+                age_secs,
+                cache.devices.len()
+            );
+        }
+
+        (cache.devices.clone(), cache.type_counts.clone())
+    } else {
+        warn!("Failed to read GPU cache");
+        (Vec::new(), HashMap::new())
+    }
 }
 
 // Keep the old struct for backward compatibility
