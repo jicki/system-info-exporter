@@ -212,21 +212,22 @@ impl NodeMetrics {
             node, self.memory_usage_percent
         ));
 
-        // GPU total count
-        output.push_str("# HELP hw_gpu_count Total number of GPUs\n");
+        // GPU total count (without node label for cluster-level aggregation)
+        output.push_str("# HELP hw_gpu_count Total number of GPUs (cluster-level aggregation)\n");
         output.push_str("# TYPE hw_gpu_count gauge\n");
         output.push_str(&format!(
-            "hw_gpu_count{{node=\"{}\"}} {}\n",
-            node, self.gpu_count
+            "hw_gpu_count {}\n",
+            self.gpu_count
         ));
 
-        // GPU type counts (without node label for cluster-level aggregation)
+        // GPU type counts per node
         if !self.gpu_type_counts.is_empty() {
-            output.push_str("# HELP hw_gpu_type_count Number of GPUs by type (cluster-level aggregation)\n");
+            output.push_str("# HELP hw_gpu_type_count Number of GPUs by type per node\n");
             output.push_str("# TYPE hw_gpu_type_count gauge\n");
             for (gpu_type, count) in &self.gpu_type_counts {
                 output.push_str(&format!(
-                    "hw_gpu_type_count{{gpu_type=\"{}\"}} {}\n",
+                    "hw_gpu_type_count{{node=\"{}\",gpu_type=\"{}\"}} {}\n",
+                    node,
                     escape_label_value(gpu_type),
                     count
                 ));
