@@ -29,10 +29,11 @@ spec:
             - name: RUST_LOG
               value: "info"
             # NVIDIA environment variables for Container Toolkit
+            # Request all GPUs and all capabilities for full NVML access
             - name: NVIDIA_VISIBLE_DEVICES
               value: "all"
             - name: NVIDIA_DRIVER_CAPABILITIES
-              value: "utility"
+              value: "all"
             # Use node hostname instead of pod hostname
             - name: NODE_NAME
               valueFrom:
@@ -49,6 +50,11 @@ spec:
             - name: host-proc-driver
               mountPath: /host/proc/driver
               readOnly: true
+            # Mount nvidia-uvm devices explicitly
+            - name: nvidia-uvm
+              mountPath: /dev/nvidia-uvm
+            - name: nvidia-uvm-tools
+              mountPath: /dev/nvidia-uvm-tools
           resources:
             requests:
               cpu: 50m
@@ -73,11 +79,9 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 3
           securityContext:
-            allowPrivilegeEscalation: false
+            # Need privileged to access GPU devices properly
+            privileged: true
             readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                - ALL
       tolerations:
         # Allow scheduling on GPU nodes
         - key: nvidia.com/gpu
@@ -96,3 +100,12 @@ spec:
           hostPath:
             path: /proc/driver
             type: Directory
+        # NVIDIA UVM devices for NVML
+        - name: nvidia-uvm
+          hostPath:
+            path: /dev/nvidia-uvm
+            type: CharDevice
+        - name: nvidia-uvm-tools
+          hostPath:
+            path: /dev/nvidia-uvm-tools
+            type: CharDevice
