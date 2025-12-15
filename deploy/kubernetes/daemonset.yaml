@@ -5,7 +5,7 @@ metadata:
   namespace: system-info-exporter
   labels:
     app.kubernetes.io/name: system-info-exporter
-    app.kubernetes.io/version: "1.1.5"
+    app.kubernetes.io/version: "1.2.0"
 spec:
   selector:
     matchLabels:
@@ -19,7 +19,7 @@ spec:
       hostPID: true
       containers:
         - name: system-info-exporter
-          image: reg.deeproute.ai/deeproute-public/zzh/system-info-exporter:1.1.5
+          image: reg.deeproute.ai/deeproute-public/zzh/system-info-exporter:1.2.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
