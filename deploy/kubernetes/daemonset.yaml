@@ -15,6 +15,8 @@ spec:
       labels:
         app.kubernetes.io/name: system-info-exporter
     spec:
+      # Use NVIDIA runtime to inject nvidia-smi and libraries
+      runtimeClassName: nvidia
       containers:
         - name: system-info-exporter
           image: reg.deeproute.ai/deeproute-public/zzh/system-info-exporter:1.0.6
@@ -26,7 +28,7 @@ spec:
           env:
             - name: RUST_LOG
               value: "info"
-            # NVIDIA environment variables
+            # NVIDIA environment variables for Container Toolkit
             - name: NVIDIA_VISIBLE_DEVICES
               value: "all"
             - name: NVIDIA_DRIVER_CAPABILITIES
@@ -46,14 +48,6 @@ spec:
             # Mount host's /proc/driver for NVIDIA GPU detection
             - name: host-proc-driver
               mountPath: /host/proc/driver
-              readOnly: true
-            # Mount host's /usr/bin for nvidia-smi access
-            - name: host-usr-bin
-              mountPath: /host/usr/bin
-              readOnly: true
-            # Mount NVIDIA libraries for nvidia-smi dependencies
-            - name: host-nvidia-libs
-              mountPath: /host/nvidia-libs
               readOnly: true
           resources:
             requests:
@@ -101,14 +95,4 @@ spec:
         - name: host-proc-driver
           hostPath:
             path: /proc/driver
-            type: Directory
-        # Mount host's /usr/bin for nvidia-smi
-        - name: host-usr-bin
-          hostPath:
-            path: /usr/bin
-            type: Directory
-        # Mount NVIDIA libraries for nvidia-smi
-        - name: host-nvidia-libs
-          hostPath:
-            path: /usr/lib/x86_64-linux-gnu
             type: Directory

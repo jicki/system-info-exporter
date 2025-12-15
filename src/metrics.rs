@@ -10,11 +10,12 @@ use tracing::{info, warn};
 const NVIDIA_SMI_TIMEOUT_SECS: u64 = 5;
 
 /// Path to nvidia-smi binary
-/// Try host-mounted path first, then container paths
+/// Prefer container paths (injected by NVIDIA Container Toolkit) over host-mounted paths
+/// Using host-mounted binaries causes glibc version mismatch issues
 const NVIDIA_SMI_PATHS: &[&str] = &[
-    "/host/usr/bin/nvidia-smi",
-    "/usr/bin/nvidia-smi",
-    "/usr/local/bin/nvidia-smi",
+    "/usr/bin/nvidia-smi",           // Injected by NVIDIA Container Toolkit
+    "/usr/local/bin/nvidia-smi",     // Alternative container path
+    "/host/usr/bin/nvidia-smi",      // Host-mounted fallback (may not work due to glibc mismatch)
 ];
 
 #[derive(Debug, Serialize, Clone)]
@@ -383,9 +384,6 @@ fn has_timeout_command() -> bool {
 fn run_nvidia_smi_with_timeout(args: &[&str]) -> Option<String> {
     let nvidia_smi = find_nvidia_smi()?;
 
-    // Set LD_LIBRARY_PATH for nvidia-smi dependencies when using host-mounted binary
-    let ld_library_path = "/host/nvidia-libs:/usr/lib/x86_64-linux-gnu:/usr/lib";
-
     // Check if timeout command exists, otherwise use direct execution
     if !has_timeout_command() {
         info!("timeout command not available, using direct execution");
@@ -395,14 +393,19 @@ fn run_nvidia_smi_with_timeout(args: &[&str]) -> Option<String> {
     // Build nvidia-smi command with arguments
     let nvidia_args = args.join(" ");
 
-    // Use shell wrapper so LD_LIBRARY_PATH only affects nvidia-smi, not timeout
-    // This avoids glibc version conflicts between container and host
-    let shell_cmd = format!(
-        "LD_LIBRARY_PATH={} {} {}",
-        ld_library_path,
-        nvidia_smi,
-        nvidia_args
-    );
+    // Only set LD_LIBRARY_PATH for host-mounted nvidia-smi
+    // Container-injected nvidia-smi (from NVIDIA Container Toolkit) has its own libraries
+    let shell_cmd = if nvidia_smi.starts_with("/host/") {
+        let ld_library_path = "/host/nvidia-libs:/usr/lib/x86_64-linux-gnu:/usr/lib";
+        format!(
+            "LD_LIBRARY_PATH={} {} {}",
+            ld_library_path,
+            nvidia_smi,
+            nvidia_args
+        )
+    } else {
+        format!("{} {}", nvidia_smi, nvidia_args)
+    };
 
     // Use timeout command to prevent nvidia-smi from hanging
     let output = Command::new("timeout")
@@ -447,17 +450,19 @@ fn run_nvidia_smi_with_timeout(args: &[&str]) -> Option<String> {
 fn run_nvidia_smi_direct(nvidia_smi: &str, args: &[&str]) -> Option<String> {
     use std::process::Stdio;
     use std::thread;
-    
-    // Set LD_LIBRARY_PATH for nvidia-smi dependencies
-    let ld_library_path = "/host/nvidia-libs:/usr/lib/x86_64-linux-gnu:/usr/lib";
-    
-    let mut child = Command::new(nvidia_smi)
-        .args(args)
-        .env("LD_LIBRARY_PATH", ld_library_path)
+
+    // Only set LD_LIBRARY_PATH for host-mounted nvidia-smi
+    let mut cmd = Command::new(nvidia_smi);
+    cmd.args(args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+        .stderr(Stdio::piped());
+
+    if nvidia_smi.starts_with("/host/") {
+        let ld_library_path = "/host/nvidia-libs:/usr/lib/x86_64-linux-gnu:/usr/lib";
+        cmd.env("LD_LIBRARY_PATH", ld_library_path);
+    }
+
+    let mut child = cmd.spawn().ok()?;
 
     let timeout = Duration::from_secs(NVIDIA_SMI_TIMEOUT_SECS);
     let start = std::time::Instant::now();
@@ -470,7 +475,11 @@ fn run_nvidia_smi_direct(nvidia_smi: &str, args: &[&str]) -> Option<String> {
                     let output = child.wait_with_output().ok()?;
                     return String::from_utf8(output.stdout).ok();
                 } else {
-                    warn!("nvidia-smi failed with status: {}", status);
+                    let output = child.wait_with_output().ok();
+                    let stderr = output
+                        .map(|o| String::from_utf8_lossy(&o.stderr).to_string())
+                        .unwrap_or_default();
+                    warn!("nvidia-smi failed with status: {}, stderr: {}", status, stderr);
                     return None;
                 }
             }
