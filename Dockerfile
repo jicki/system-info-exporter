@@ -28,8 +28,7 @@ COPY config ./config
 
 # Build the application (dynamically linked to musl libc, supports dlopen)
 RUN touch src/main.rs && \
-    cargo build --release && \
-    ldd target/release/system-info-exporter
+    cargo build --release
 
 # Runtime stage - Alpine with musl libc
 FROM reg.deeproute.ai/deeproute-public/zzh/alpine:3.23

@@ -349,27 +349,49 @@ fn get_host_os_info() -> (String, String) {
 /// Check if NVIDIA GPU hardware is present
 /// Uses /host/proc/driver/nvidia/version which is mounted from host
 fn has_nvidia_gpu() -> bool {
-    std::path::Path::new("/host/proc/driver/nvidia/version").exists()
+    let path = "/host/proc/driver/nvidia/version";
+    let exists = std::path::Path::new(path).exists();
+    if exists {
+        info!("NVIDIA GPU driver detected at {}", path);
+    }
+    exists
 }
 
 /// Find nvidia-smi binary path
 fn find_nvidia_smi() -> Option<&'static str> {
     for path in NVIDIA_SMI_PATHS {
         if std::path::Path::new(path).exists() {
+            info!("Found nvidia-smi at {}", path);
             return Some(path);
         }
     }
+    warn!("nvidia-smi not found in any of: {:?}", NVIDIA_SMI_PATHS);
     None
+}
+
+/// Check if timeout command is available
+fn has_timeout_command() -> bool {
+    Command::new("which")
+        .arg("timeout")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 /// Execute nvidia-smi with timeout protection
 /// Returns None if command fails, times out, or nvidia-smi is not available
 fn run_nvidia_smi_with_timeout(args: &[&str]) -> Option<String> {
     let nvidia_smi = find_nvidia_smi()?;
-    
+
     // Set LD_LIBRARY_PATH for nvidia-smi dependencies when using host-mounted binary
     let ld_library_path = "/host/nvidia-libs:/usr/lib/x86_64-linux-gnu:/usr/lib";
-    
+
+    // Check if timeout command exists, otherwise use direct execution
+    if !has_timeout_command() {
+        info!("timeout command not available, using direct execution");
+        return run_nvidia_smi_direct(nvidia_smi, args);
+    }
+
     // Use timeout command to prevent nvidia-smi from hanging
     // This is more reliable than Rust-side timeout for process hangs
     let output = Command::new("timeout")
@@ -387,6 +409,16 @@ fn run_nvidia_smi_with_timeout(args: &[&str]) -> Option<String> {
                 let exit_code = result.status.code().unwrap_or(-1);
                 if exit_code == 124 {
                     warn!("nvidia-smi command timed out after {}s", NVIDIA_SMI_TIMEOUT_SECS);
+                } else if exit_code == 127 {
+                    // Exit code 127 means command not found or library loading failed
+                    // Log more details for debugging
+                    let stderr = String::from_utf8_lossy(&result.stderr);
+                    warn!(
+                        "nvidia-smi failed with exit code 127 (command not found or library error). \
+                         Path: {}, stderr: {}",
+                        nvidia_smi,
+                        if stderr.is_empty() { "(empty)" } else { stderr.trim() }
+                    );
                 } else {
                     warn!("nvidia-smi failed with exit code: {}", exit_code);
                 }
