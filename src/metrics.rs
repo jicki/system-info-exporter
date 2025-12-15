@@ -220,14 +220,13 @@ impl NodeMetrics {
             node, self.gpu_count
         ));
 
-        // GPU type counts
+        // GPU type counts (without node label for cluster-level aggregation)
         if !self.gpu_type_counts.is_empty() {
-            output.push_str("# HELP hw_gpu_type_count Number of GPUs by type\n");
+            output.push_str("# HELP hw_gpu_type_count Number of GPUs by type (cluster-level aggregation)\n");
             output.push_str("# TYPE hw_gpu_type_count gauge\n");
             for (gpu_type, count) in &self.gpu_type_counts {
                 output.push_str(&format!(
-                    "hw_gpu_type_count{{node=\"{}\",gpu_type=\"{}\"}} {}\n",
-                    node,
+                    "hw_gpu_type_count{{gpu_type=\"{}\"}} {}\n",
                     escape_label_value(gpu_type),
                     count
                 ));

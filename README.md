@@ -93,7 +93,7 @@ kubectl apply -f deploy/kubernetes/
 | 指标名 | 类型 | 说明 |
 |--------|------|------|
 | `hw_gpu_count` | gauge | GPU 总数 |
-| `hw_gpu_type_count` | gauge | 按型号统计 GPU 数量 |
+| `hw_gpu_type_count` | gauge | 按型号统计 GPU 数量（集群级聚合） |
 | `hw_gpu_memory_total_bytes` | gauge | GPU 显存总量（字节） |
 | `hw_gpu_memory_used_bytes` | gauge | GPU 已用显存（字节） |
 | `hw_gpu_memory_free_bytes` | gauge | GPU 可用显存（字节） |
@@ -121,9 +121,9 @@ hw_memory_total_bytes{node="gpu-node-01"} 270582939648
 # TYPE hw_gpu_count gauge
 hw_gpu_count{node="gpu-node-01"} 8
 
-# HELP hw_gpu_type_count Number of GPUs by type
+# HELP hw_gpu_type_count Number of GPUs by type (cluster-level aggregation)
 # TYPE hw_gpu_type_count gauge
-hw_gpu_type_count{node="gpu-node-01",gpu_type="NVIDIA A100-SXM4-80GB"} 8
+hw_gpu_type_count{gpu_type="NVIDIA A100-SXM4-80GB"} 8
 
 # HELP hw_gpu_memory_total_bytes GPU total memory in bytes
 # TYPE hw_gpu_memory_total_bytes gauge
