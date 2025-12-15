@@ -1,13 +1,11 @@
-# Build stage - use Rust Alpine for musl dynamic linking (supports dlopen)
-FROM reg.deeproute.ai/deeproute-public/zzh/rust:1.92-alpine AS builder
+# Build stage - use Rust Debian for glibc compatibility with host nvidia libraries
+FROM reg.deeproute.ai/deeproute-public/zzh/rust:1.92-bookworm AS builder
 
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
-
-# Install build dependencies for musl dynamic compilation
-RUN apk add --no-cache \
-    musl-dev \
-    pkgconfig \
-    openssl-dev
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -15,8 +13,6 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
 
 # Create dummy src to cache dependencies
-# Use native target (alpine's musl) - NOT --target x86_64-unknown-linux-musl
-# This creates a dynamically linked binary that supports dlopen
 RUN mkdir -p src && \
     echo "fn main() {}" > src/main.rs && \
     cargo build --release && \
@@ -26,22 +22,23 @@ RUN mkdir -p src && \
 COPY src ./src
 COPY config ./config
 
-# Build the application (dynamically linked to musl libc, supports dlopen)
+# Build the application
 RUN touch src/main.rs && \
     cargo build --release
 
-# Runtime stage - Alpine with musl libc
-FROM reg.deeproute.ai/deeproute-public/zzh/alpine:3.23
-
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
+# Runtime stage - Debian slim with glibc (compatible with host nvidia libraries)
+FROM reg.deeproute.ai/deeproute-public/zzh/debian:bookworm-slim
 
 # Install minimal runtime dependencies
 # coreutils provides 'timeout' command for nvidia-smi timeout handling
-RUN apk add --no-cache ca-certificates coreutils
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    coreutils \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN addgroup -g 1000 appgroup && \
-    adduser -u 1000 -G appgroup -s /bin/sh -D appuser
+RUN groupadd -g 1000 appgroup && \
+    useradd -u 1000 -g appgroup -s /bin/sh -M appuser
 
 WORKDIR /app
 
