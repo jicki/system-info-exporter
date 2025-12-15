@@ -28,6 +28,7 @@ const NVIDIA_SMI_PATHS: &[&str] = &[
 struct GpuCache {
     devices: Vec<GpuInfo>,
     type_counts: HashMap<String, u32>,
+    used_count: usize,
     last_update: Instant,
     last_success: bool,
 }
@@ -37,6 +38,7 @@ impl Default for GpuCache {
         Self {
             devices: Vec::new(),
             type_counts: HashMap::new(),
+            used_count: 0,
             last_update: Instant::now(),
             last_success: false,
         }
@@ -78,6 +80,7 @@ pub struct NodeMetrics {
     pub memory_available_bytes: u64,
     pub memory_usage_percent: f32,
     pub gpu_count: usize,
+    pub gpu_used_count: usize,
     pub gpu_devices: Vec<GpuInfo>,
     pub gpu_type_counts: HashMap<String, u32>,
 }
@@ -105,7 +108,7 @@ impl NodeMetrics {
             .map(|cpu| cpu.brand().to_string())
             .unwrap_or_else(|| "unknown".to_string());
 
-        let (gpu_devices, gpu_type_counts) = collect_gpu_info();
+        let (gpu_devices, gpu_type_counts, gpu_used_count) = collect_gpu_info();
 
         // Get node name from NODE_NAME env variable, fallback to hostname
         let node = std::env::var("NODE_NAME")
@@ -132,6 +135,7 @@ impl NodeMetrics {
             memory_available_bytes: memory_available,
             memory_usage_percent,
             gpu_count: gpu_devices.len(),
+            gpu_used_count,
             gpu_devices: gpu_devices.clone(),
             gpu_type_counts,
         }
@@ -222,15 +226,12 @@ impl NodeMetrics {
                 node, self.gpu_count
             ));
 
-            // GPU used count (GPUs with utilization > 0 or memory used > 0)
-            let gpu_used_count = self.gpu_devices.iter()
-                .filter(|gpu| gpu.utilization_percent > 0 || gpu.memory_used_mb > 0)
-                .count();
+            // GPU used count (GPUs with running compute processes)
             output.push_str("# HELP hw_gpu_used_count Number of GPUs currently in use per node\n");
             output.push_str("# TYPE hw_gpu_used_count gauge\n");
             output.push_str(&format!(
                 "hw_gpu_used_count{{node=\"{}\"}} {}\n",
-                node, gpu_used_count
+                node, self.gpu_used_count
             ));
 
             // GPU type counts per node
@@ -637,17 +638,17 @@ fn parse_watts_value(s: &str) -> u32 {
 
 /// Collect GPU information using nvidia-smi command
 /// Uses caching to prevent data loss when nvidia-smi hangs or fails
-fn collect_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
+fn collect_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>, usize) {
     // Early return if no NVIDIA GPU hardware detected
     if !has_nvidia_gpu() {
         info!("No NVIDIA GPU hardware detected, skipping GPU metrics collection");
-        return (Vec::new(), HashMap::new());
+        return (Vec::new(), HashMap::new(), 0);
     }
 
     // Check if nvidia-smi is available
     if find_nvidia_smi().is_none() {
         info!("nvidia-smi not found, skipping GPU metrics collection");
-        return (Vec::new(), HashMap::new());
+        return (Vec::new(), HashMap::new(), 0);
     }
 
     // Query GPU information using nvidia-smi
@@ -673,17 +674,21 @@ fn collect_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
                 *gpu_type_counts.entry(gpu.name.clone()).or_insert(0) += 1;
             }
 
-            info!("Collected metrics for {} GPU(s)", gpu_devices.len());
+            // Query GPUs with running compute processes
+            let gpu_used_count = get_gpu_used_count(&gpu_devices);
+
+            info!("Collected metrics for {} GPU(s), {} in use", gpu_devices.len(), gpu_used_count);
 
             // Update cache with successful data
             if let Ok(mut cache) = GPU_CACHE.write() {
                 cache.devices = gpu_devices.clone();
                 cache.type_counts = gpu_type_counts.clone();
+                cache.used_count = gpu_used_count;
                 cache.last_update = Instant::now();
                 cache.last_success = true;
             }
 
-            (gpu_devices, gpu_type_counts)
+            (gpu_devices, gpu_type_counts, gpu_used_count)
         }
         None => {
             warn!("Failed to get GPU metrics from nvidia-smi, using cached data");
@@ -693,13 +698,13 @@ fn collect_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
 }
 
 /// Get cached GPU info, with staleness warning
-fn get_cached_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
+fn get_cached_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>, usize) {
     if let Ok(cache) = GPU_CACHE.read() {
         let age_secs = cache.last_update.elapsed().as_secs();
 
         if cache.devices.is_empty() {
             warn!("No cached GPU data available");
-            return (Vec::new(), HashMap::new());
+            return (Vec::new(), HashMap::new(), 0);
         }
 
         if age_secs > GPU_CACHE_MAX_AGE_SECS {
@@ -715,10 +720,45 @@ fn get_cached_gpu_info() -> (Vec<GpuInfo>, HashMap<String, u32>) {
             );
         }
 
-        (cache.devices.clone(), cache.type_counts.clone())
+        (cache.devices.clone(), cache.type_counts.clone(), cache.used_count)
     } else {
         warn!("Failed to read GPU cache");
-        (Vec::new(), HashMap::new())
+        (Vec::new(), HashMap::new(), 0)
+    }
+}
+
+/// Get count of GPUs with running compute processes
+/// Uses nvidia-smi --query-compute-apps to detect GPUs with active processes
+fn get_gpu_used_count(gpu_devices: &[GpuInfo]) -> usize {
+    use std::collections::HashSet;
+
+    // Query compute processes to find which GPUs have running processes
+    let query_args = [
+        "--query-compute-apps=gpu_uuid",
+        "--format=csv,noheader",
+    ];
+
+    match run_nvidia_smi_with_timeout(&query_args) {
+        Some(output) => {
+            // Collect unique GPU UUIDs that have compute processes
+            let used_uuids: HashSet<String> = output
+                .lines()
+                .map(|line| line.trim().to_string())
+                .filter(|uuid| !uuid.is_empty())
+                .collect();
+
+            // Count how many of our GPUs have processes
+            let count = gpu_devices
+                .iter()
+                .filter(|gpu| used_uuids.contains(&gpu.uuid))
+                .count();
+
+            count
+        }
+        None => {
+            warn!("Failed to query compute apps, returning 0 for gpu_used_count");
+            0
+        }
     }
 }
 
