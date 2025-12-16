@@ -88,8 +88,25 @@ kubectl apply -f deploy/kubernetes/
 |--------|------|------|------|----------|
 | `hw_cpu_cores` | gauge | node | 物理核心数 | `sysinfo::System::physical_core_count()` |
 | `hw_cpu_threads` | gauge | node | 逻辑线程数 | `sysinfo::System::cpus().len()` |
-| `hw_cpu_usage_percent` | gauge | node | CPU 使用率（%） | `sysinfo::System::global_cpu_usage()` |
+| `hw_cpu_usage_percent` | gauge | node | CPU 使用率（%） | `sysinfo::System::global_cpu_usage()`（持久化 System 对象） |
 | `hw_cpu_used_cores` | gauge | node | 使用的 CPU 核心数 | 计算: `(usage_percent / 100) * threads` |
+
+**CPU 使用率采集原理：**
+
+`sysinfo` 库通过对比两次 `refresh_cpu_all()` 调用之间的 CPU 时间差来计算使用率。本项目使用**持久化 System 对象**（通过 `lazy_static` 实现），确保每次采集都能获取准确的动态 CPU 使用率。
+
+```rust
+lazy_static::lazy_static! {
+    static ref SYSTEM: RwLock<System> = RwLock::new(System::new());
+}
+
+// 每次采集使用同一个 System 对象
+let mut sys = SYSTEM.write().unwrap();
+sys.refresh_cpu_all();
+let cpu_usage = sys.global_cpu_usage();  // 基于时间差计算，数值会动态变化
+```
+
+> **与 node-exporter 的区别**：node-exporter 暴露 `node_cpu_seconds_total` 累计计数器，使用 PromQL `rate()` 在查询时计算变化率。本项目直接暴露瞬时百分比值，简化查询但精度略低。
 
 ### 内存指标
 
@@ -369,6 +386,7 @@ node_uptime = true
 cpu_cores = true
 cpu_threads = true
 cpu_usage = true
+cpu_used_cores = true
 
 # Memory metrics
 memory_total = true
@@ -403,6 +421,7 @@ node_uptime = false
 cpu_cores = false
 cpu_threads = false
 cpu_usage = false
+cpu_used_cores = false
 
 # 禁用 Memory 指标
 memory_total = false
@@ -515,11 +534,18 @@ system-info-exporter/
 **优化方案**：使用选择性刷新，只采集需要的数据：
 
 ```rust
+// 使用持久化 System 对象，避免每次创建新实例
+lazy_static::lazy_static! {
+    static ref SYSTEM: RwLock<System> = RwLock::new(System::new());
+}
+
 // 不使用 System::new_all()，避免采集所有进程
-let mut sys = System::new();
+let mut sys = SYSTEM.write().unwrap();
 sys.refresh_memory();    // 只刷新内存信息
 sys.refresh_cpu_all();   // 只刷新 CPU 信息
 ```
+
+> **注意**：持久化 System 对象还能确保 CPU 使用率计算准确，因为 `sysinfo` 需要对比两次刷新之间的时间差来计算 CPU 使用率。
 
 ## Kubernetes 部署要点
 
