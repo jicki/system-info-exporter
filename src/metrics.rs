@@ -48,6 +48,9 @@ impl Default for GpuCache {
 
 lazy_static::lazy_static! {
     static ref GPU_CACHE: RwLock<GpuCache> = RwLock::new(GpuCache::default());
+    /// Persistent System object for accurate CPU usage calculation
+    /// sysinfo requires multiple refreshes to calculate CPU usage delta
+    static ref SYSTEM: RwLock<System> = RwLock::new(System::new());
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -89,9 +92,9 @@ pub struct NodeMetrics {
 
 impl NodeMetrics {
     pub fn collect() -> Self {
-        // Only refresh what we need, avoid collecting all processes
-        // This is important when hostPID is enabled as it would see all host processes
-        let mut sys = System::new();
+        // Use persistent System object for accurate CPU usage calculation
+        // sysinfo calculates CPU usage by comparing current vs previous refresh
+        let mut sys = SYSTEM.write().unwrap();
         sys.refresh_memory();
         sys.refresh_cpu_all();
 
