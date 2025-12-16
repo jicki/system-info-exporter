@@ -14,6 +14,7 @@
 - **Prometheus 格式输出**：所有指标使用 `hw_` 前缀
 - **轻量高效**：Rust 编写，资源占用低（~200m CPU，~256Mi 内存）
 - **混合集群支持**：同时兼容 GPU 节点和纯 CPU 节点
+- **自定义指标**：支持配置文件启用/禁用特定指标
 
 ## 快速开始
 
@@ -60,48 +61,92 @@ kubectl apply -f deploy/kubernetes/
 | `/metrics/json` | GET | JSON 格式指标（旧版兼容） |
 | `/node` | GET | 完整节点信息（JSON） |
 
-## Prometheus 指标
+## Prometheus 指标详解
 
-所有指标均使用 `hw_` 前缀。
+所有指标均使用 `hw_` 前缀，以下详细说明每个指标的获取方式和计算方法。
 
-### 节点信息
+### 节点信息指标
 
-| 指标名 | 类型 | 说明 |
-|--------|------|------|
-| `hw_node_info` | gauge | 节点基本信息（标签包含 node、os、kernel、cpu_model） |
-| `hw_node_uptime_seconds` | counter | 节点运行时间（秒） |
+| 指标名 | 类型 | 标签 | 说明 | 数据来源 |
+|--------|------|------|------|----------|
+| `hw_node_info` | gauge | node, os, os_version, kernel, cpu_model | 节点基本信息 | 见下方详解 |
+| `hw_node_uptime_seconds` | counter | node | 节点运行时间（秒） | `sysinfo::System::uptime()` |
+
+**`hw_node_info` 标签详解：**
+
+| 标签 | 数据来源 | 说明 |
+|------|----------|------|
+| `node` | 环境变量 `NODE_NAME`，回退到 `sysinfo::System::host_name()` | K8s 节点名 |
+| `os` | `/host/etc/os-release` 的 `NAME` 字段，回退到 `sysinfo::System::name()` | 操作系统名称 |
+| `os_version` | `/host/etc/os-release` 的 `VERSION_ID` 字段，回退到 `sysinfo::System::os_version()` | 操作系统版本 |
+| `kernel` | `sysinfo::System::kernel_version()` | 内核版本 |
+| `cpu_model` | `sysinfo::System::cpus()[0].brand()` | CPU 型号 |
 
 ### CPU 指标
 
-| 指标名 | 类型 | 说明 |
-|--------|------|------|
-| `hw_cpu_cores` | gauge | 物理核心数 |
-| `hw_cpu_threads` | gauge | 逻辑线程数 |
-| `hw_cpu_usage_percent` | gauge | CPU 使用率（%） |
+| 指标名 | 类型 | 标签 | 说明 | 数据来源 |
+|--------|------|------|------|----------|
+| `hw_cpu_cores` | gauge | node | 物理核心数 | `sysinfo::System::physical_core_count()` |
+| `hw_cpu_threads` | gauge | node | 逻辑线程数 | `sysinfo::System::cpus().len()` |
+| `hw_cpu_usage_percent` | gauge | node | CPU 使用率（%） | `sysinfo::System::global_cpu_usage()` |
 
 ### 内存指标
 
-| 指标名 | 类型 | 说明 |
-|--------|------|------|
-| `hw_memory_total_bytes` | gauge | 内存总量（字节） |
-| `hw_memory_used_bytes` | gauge | 已用内存（字节） |
-| `hw_memory_available_bytes` | gauge | 可用内存（字节） |
-| `hw_memory_usage_percent` | gauge | 内存使用率（%） |
+| 指标名 | 类型 | 标签 | 说明 | 数据来源 |
+|--------|------|------|------|----------|
+| `hw_memory_total_bytes` | gauge | node | 内存总量（字节） | `sysinfo::System::total_memory()` |
+| `hw_memory_used_bytes` | gauge | node | 已用内存（字节） | `sysinfo::System::used_memory()` |
+| `hw_memory_available_bytes` | gauge | node | 可用内存（字节） | `sysinfo::System::available_memory()` |
+| `hw_memory_usage_percent` | gauge | node | 内存使用率（%） | 计算: `(used / total) * 100` |
 
 ### GPU 指标
 
-| 指标名 | 类型 | 说明 |
-|--------|------|------|
-| `hw_gpu_count` | gauge | GPU 总数（仅 GPU 节点输出） |
-| `hw_gpu_used_count` | gauge | 正在使用的 GPU 数量（有计算进程运行的 GPU） |
-| `hw_gpu_type_count` | gauge | 按节点和型号统计 GPU 数量 |
-| `hw_gpu_memory_total_bytes` | gauge | GPU 显存总量（字节） |
-| `hw_gpu_memory_used_bytes` | gauge | GPU 已用显存（字节） |
-| `hw_gpu_memory_free_bytes` | gauge | GPU 可用显存（字节） |
-| `hw_gpu_utilization_percent` | gauge | GPU 利用率（%） |
-| `hw_gpu_temperature_celsius` | gauge | GPU 温度（℃） |
-| `hw_gpu_power_draw_watts` | gauge | GPU 功耗（W） |
-| `hw_gpu_power_limit_watts` | gauge | GPU 功率限制（W） |
+GPU 指标仅在检测到 NVIDIA GPU 的节点上输出。
+
+#### GPU 检测条件
+
+1. 检查 `/host/proc/driver/nvidia/version` 文件是否存在
+2. 查找 `nvidia-smi` 二进制文件（按顺序）：
+   - `/usr/bin/nvidia-smi` (NVIDIA Container Toolkit 注入)
+   - `/usr/local/bin/nvidia-smi`
+   - `/host/usr/bin/nvidia-smi` (宿主机挂载，可能有 glibc 兼容问题)
+
+#### GPU 汇总指标
+
+| 指标名 | 类型 | 标签 | 说明 | 数据来源 |
+|--------|------|------|------|----------|
+| `hw_gpu_count` | gauge | node | GPU 总数 | `nvidia-smi` 返回的 GPU 数量 |
+| `hw_gpu_used_count` | gauge | node | 正在使用的 GPU 数量 | 见下方计算方法 |
+| `hw_gpu_type_count` | gauge | node, gpu_type | 按型号统计 GPU 数量 | 按 GPU 名称分组计数 |
+
+**`hw_gpu_used_count` 计算方法：**
+
+```bash
+# 查询所有运行计算进程的 GPU UUID
+nvidia-smi --query-compute-apps=gpu_uuid --format=csv,noheader
+```
+
+统计有计算进程运行的唯一 GPU 数量。这比检测 `memory_used > 0` 更准确，因为空闲 GPU 也会有基础显存占用。
+
+#### GPU 设备详细指标
+
+以下指标为每个 GPU 设备单独输出，包含 `gpu_index`、`gpu_name`、`gpu_uuid` 标签。
+
+| 指标名 | 类型 | 说明 | nvidia-smi 查询字段 |
+|--------|------|------|---------------------|
+| `hw_gpu_memory_total_bytes` | gauge | GPU 显存总量（字节） | `memory.total` × 1024 × 1024 |
+| `hw_gpu_memory_used_bytes` | gauge | GPU 已用显存（字节） | `memory.used` × 1024 × 1024 |
+| `hw_gpu_memory_free_bytes` | gauge | GPU 可用显存（字节） | `memory.free` × 1024 × 1024 |
+| `hw_gpu_utilization_percent` | gauge | GPU 利用率（%） | `utilization.gpu` |
+| `hw_gpu_temperature_celsius` | gauge | GPU 温度（℃） | `temperature.gpu` |
+| `hw_gpu_power_draw_watts` | gauge | GPU 功耗（W） | `power.draw` |
+| `hw_gpu_power_limit_watts` | gauge | GPU 功率限制（W） | `power.limit` |
+
+**nvidia-smi 查询命令：**
+
+```bash
+nvidia-smi --query-gpu=index,name,uuid,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,power.limit --format=csv,noheader,nounits
+```
 
 ### 指标示例
 
@@ -110,13 +155,37 @@ kubectl apply -f deploy/kubernetes/
 # TYPE hw_node_info gauge
 hw_node_info{node="gpu-node-01",os="Ubuntu",os_version="22.04",kernel="5.15.0",cpu_model="Intel(R) Xeon(R) Gold 6248R"} 1
 
+# HELP hw_node_uptime_seconds Node uptime in seconds
+# TYPE hw_node_uptime_seconds counter
+hw_node_uptime_seconds{node="gpu-node-01"} 8640000
+
 # HELP hw_cpu_cores Number of physical CPU cores
 # TYPE hw_cpu_cores gauge
 hw_cpu_cores{node="gpu-node-01"} 48
 
+# HELP hw_cpu_threads Number of CPU threads
+# TYPE hw_cpu_threads gauge
+hw_cpu_threads{node="gpu-node-01"} 96
+
+# HELP hw_cpu_usage_percent CPU usage percentage
+# TYPE hw_cpu_usage_percent gauge
+hw_cpu_usage_percent{node="gpu-node-01"} 23.45
+
 # HELP hw_memory_total_bytes Total memory in bytes
 # TYPE hw_memory_total_bytes gauge
 hw_memory_total_bytes{node="gpu-node-01"} 270582939648
+
+# HELP hw_memory_used_bytes Used memory in bytes
+# TYPE hw_memory_used_bytes gauge
+hw_memory_used_bytes{node="gpu-node-01"} 135291469824
+
+# HELP hw_memory_available_bytes Available memory in bytes
+# TYPE hw_memory_available_bytes gauge
+hw_memory_available_bytes{node="gpu-node-01"} 135291469824
+
+# HELP hw_memory_usage_percent Memory usage percentage
+# TYPE hw_memory_usage_percent gauge
+hw_memory_usage_percent{node="gpu-node-01"} 50.00
 
 # HELP hw_gpu_count Total number of GPUs per node
 # TYPE hw_gpu_count gauge
@@ -132,7 +201,71 @@ hw_gpu_type_count{node="gpu-node-01",gpu_type="NVIDIA A100-SXM4-80GB"} 8
 
 # HELP hw_gpu_memory_total_bytes GPU total memory in bytes
 # TYPE hw_gpu_memory_total_bytes gauge
-hw_gpu_memory_total_bytes{node="gpu-node-01",gpu_index="0",gpu_name="NVIDIA A100-SXM4-80GB",gpu_uuid="GPU-xxx"} 85899345920
+hw_gpu_memory_total_bytes{node="gpu-node-01",gpu_index="0",gpu_name="NVIDIA A100-SXM4-80GB",gpu_uuid="GPU-12345678-1234-1234-1234-123456789abc"} 85899345920
+
+# HELP hw_gpu_memory_used_bytes GPU used memory in bytes
+# TYPE hw_gpu_memory_used_bytes gauge
+hw_gpu_memory_used_bytes{node="gpu-node-01",gpu_index="0",gpu_name="NVIDIA A100-SXM4-80GB",gpu_uuid="GPU-12345678-1234-1234-1234-123456789abc"} 42949672960
+
+# HELP hw_gpu_memory_free_bytes GPU free memory in bytes
+# TYPE hw_gpu_memory_free_bytes gauge
+hw_gpu_memory_free_bytes{node="gpu-node-01",gpu_index="0",gpu_name="NVIDIA A100-SXM4-80GB",gpu_uuid="GPU-12345678-1234-1234-1234-123456789abc"} 42949672960
+
+# HELP hw_gpu_utilization_percent GPU utilization percentage
+# TYPE hw_gpu_utilization_percent gauge
+hw_gpu_utilization_percent{node="gpu-node-01",gpu_index="0",gpu_name="NVIDIA A100-SXM4-80GB",gpu_uuid="GPU-12345678-1234-1234-1234-123456789abc"} 85
+
+# HELP hw_gpu_temperature_celsius GPU temperature in Celsius
+# TYPE hw_gpu_temperature_celsius gauge
+hw_gpu_temperature_celsius{node="gpu-node-01",gpu_index="0",gpu_name="NVIDIA A100-SXM4-80GB",gpu_uuid="GPU-12345678-1234-1234-1234-123456789abc"} 65
+
+# HELP hw_gpu_power_draw_watts GPU power draw in watts
+# TYPE hw_gpu_power_draw_watts gauge
+hw_gpu_power_draw_watts{node="gpu-node-01",gpu_index="0",gpu_name="NVIDIA A100-SXM4-80GB",gpu_uuid="GPU-12345678-1234-1234-1234-123456789abc"} 250
+
+# HELP hw_gpu_power_limit_watts GPU power limit in watts
+# TYPE hw_gpu_power_limit_watts gauge
+hw_gpu_power_limit_watts{node="gpu-node-01",gpu_index="0",gpu_name="NVIDIA A100-SXM4-80GB",gpu_uuid="GPU-12345678-1234-1234-1234-123456789abc"} 400
+```
+
+## 常用 PromQL 查询
+
+### 集群级别聚合
+
+```promql
+# 集群 GPU 总数
+sum(hw_gpu_count)
+
+# 集群正在使用的 GPU 总数
+sum(hw_gpu_used_count)
+
+# 集群 GPU 使用率
+sum(hw_gpu_used_count) / sum(hw_gpu_count) * 100
+
+# 按 GPU 型号统计集群 GPU 数量
+sum by (gpu_type) (hw_gpu_type_count)
+
+# 集群内存总量
+sum(hw_memory_total_bytes)
+
+# 集群平均内存使用率
+avg(hw_memory_usage_percent)
+```
+
+### 节点级别查询
+
+```promql
+# 某节点的 GPU 使用情况
+hw_gpu_used_count{node="gpu-node-01"}
+
+# 某节点所有 GPU 的平均利用率
+avg by (node) (hw_gpu_utilization_percent{node="gpu-node-01"})
+
+# GPU 温度超过 80℃ 的设备
+hw_gpu_temperature_celsius > 80
+
+# 显存使用超过 90% 的 GPU
+hw_gpu_memory_used_bytes / hw_gpu_memory_total_bytes * 100 > 90
 ```
 
 ## 配置
@@ -253,31 +386,54 @@ system-info-exporter/
         └── README.md
 ```
 
-## 依赖要求
+## 技术实现
 
-### 构建环境
+### 依赖库
 
-- Rust 1.75+
+| 依赖 | 用途 |
+|------|------|
+| `sysinfo` | 采集 CPU、内存、系统信息 |
+| `axum` | HTTP 服务框架 |
+| `tokio` | 异步运行时 |
+| `serde` | 序列化/反序列化 |
+| `config` | 配置文件加载 |
+| `tracing` | 日志记录 |
+| `lazy_static` | GPU 缓存全局状态 |
 
-### 运行环境
-
-- NVIDIA 驱动（GPU 节点）
-- NVIDIA Container Toolkit（容器环境，GPU 节点）
-
-## GPU 采集机制
+### GPU 采集机制
 
 本项目使用 `nvidia-smi` 命令行工具采集 GPU 信息，具有以下特性：
 
-### 工作原理
+#### 工作流程
 
-1. **GPU 硬件检测**：检查 `/host/proc/driver/nvidia/version` 判断节点是否有 NVIDIA GPU
-2. **nvidia-smi 查找**：优先使用 NVIDIA Container Toolkit 注入的 `/usr/bin/nvidia-smi`
-3. **超时保护**：nvidia-smi 执行超时设置为 5 秒，防止命令卡住阻塞整个服务
-4. **数据缓存**：缓存成功获取的 GPU 数据，有效期 5 分钟
-   - nvidia-smi 失败时返回缓存数据，保证指标连续性
-   - 避免因 GPU 状态异常导致监控数据中断
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     GPU 指标采集流程                          │
+├─────────────────────────────────────────────────────────────┤
+│  1. 检查 /host/proc/driver/nvidia/version 是否存在           │
+│     └─ 不存在 → 返回空数据（CPU 节点）                        │
+│                                                             │
+│  2. 查找 nvidia-smi 二进制文件                               │
+│     └─ 不存在 → 返回空数据                                   │
+│                                                             │
+│  3. 执行 nvidia-smi --query-gpu=... (超时 5s)               │
+│     ├─ 成功 → 解析数据，更新缓存                              │
+│     └─ 失败/超时 → 返回缓存数据（有效期 5 分钟）               │
+│                                                             │
+│  4. 执行 nvidia-smi --query-compute-apps=gpu_uuid            │
+│     └─ 统计正在使用的 GPU 数量                               │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### 为什么选择 nvidia-smi
+#### 缓存机制
+
+- **缓存有效期**：5 分钟 (`GPU_CACHE_MAX_AGE_SECS = 300`)
+- **命令超时**：5 秒 (`NVIDIA_SMI_TIMEOUT_SECS = 5`)
+- **缓存内容**：GPU 设备列表、类型统计、使用数量
+
+当 nvidia-smi 执行失败或超时时，返回缓存数据以保证指标连续性。
+
+#### 为什么选择 nvidia-smi
 
 | 方案 | 优点 | 缺点 |
 |------|------|------|
@@ -286,6 +442,19 @@ system-info-exporter/
 
 由于 nvml-wrapper 通过动态链接调用宿主机的 `libnvidia-ml.so`，要求容器内的 glibc 版本与宿主机完全兼容。
 这在异构集群中难以保证，因此选择 nvidia-smi 方案以获得更好的兼容性。
+
+### 内存优化
+
+使用 `hostPID: true` 时，`sysinfo` 库默认会采集所有宿主机进程信息，导致内存消耗过高。
+
+**优化方案**：使用选择性刷新，只采集需要的数据：
+
+```rust
+// 不使用 System::new_all()，避免采集所有进程
+let mut sys = System::new();
+sys.refresh_memory();    // 只刷新内存信息
+sys.refresh_cpu_all();   // 只刷新 CPU 信息
+```
 
 ## Kubernetes 部署要点
 
@@ -315,6 +484,9 @@ spec:
         - name: host-proc-driver
           mountPath: /host/proc/driver
           readOnly: true
+        - name: host-etc-os-release
+          mountPath: /host/etc/os-release
+          readOnly: true
 ```
 
 ### 重要说明
@@ -333,6 +505,17 @@ spec:
 
 ## 开发
 
+### 构建要求
+
+- Rust 1.75+
+
+### 运行环境
+
+- NVIDIA 驱动（GPU 节点）
+- NVIDIA Container Toolkit（容器环境，GPU 节点）
+
+### 常用命令
+
 ```bash
 # 格式化代码
 make fmt
@@ -345,6 +528,12 @@ make test
 
 # 清理构建
 make clean
+
+# 构建 Docker 镜像
+make docker-build
+
+# 推送镜像
+make docker-push
 ```
 
 ## License
