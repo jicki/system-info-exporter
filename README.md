@@ -89,6 +89,7 @@ kubectl apply -f deploy/kubernetes/
 | `hw_cpu_cores` | gauge | node | 物理核心数 | `sysinfo::System::physical_core_count()` |
 | `hw_cpu_threads` | gauge | node | 逻辑线程数 | `sysinfo::System::cpus().len()` |
 | `hw_cpu_usage_percent` | gauge | node | CPU 使用率（%） | `sysinfo::System::global_cpu_usage()` |
+| `hw_cpu_used_cores` | gauge | node | 使用的 CPU 核心数 | 计算: `(usage_percent / 100) * threads` |
 
 ### 内存指标
 
@@ -171,6 +172,10 @@ hw_cpu_threads{node="gpu-node-01"} 96
 # TYPE hw_cpu_usage_percent gauge
 hw_cpu_usage_percent{node="gpu-node-01"} 23.45
 
+# HELP hw_cpu_used_cores Number of CPU cores currently in use
+# TYPE hw_cpu_used_cores gauge
+hw_cpu_used_cores{node="gpu-node-01"} 22.51
+
 # HELP hw_memory_total_bytes Total memory in bytes
 # TYPE hw_memory_total_bytes gauge
 hw_memory_total_bytes{node="gpu-node-01"} 270582939648
@@ -232,7 +237,41 @@ hw_gpu_power_limit_watts{node="gpu-node-01",gpu_index="0",gpu_name="NVIDIA A100-
 
 ### 集群级别聚合
 
+> **重要提示**：`hw_cpu_usage_percent` 和 `hw_memory_usage_percent` 是每个节点的百分比值（0-100）。
+> 使用 `sum()` 聚合会得到所有节点百分比的总和（可能超过 100%），这通常不是期望的结果。
+> 正确的集群级别百分比计算应使用绝对值相除或使用 `avg()`。
+
 ```promql
+# ========== CPU 指标 ==========
+
+# 集群 CPU 总核心数
+sum(hw_cpu_threads)
+
+# 集群 CPU 已使用核心数
+sum(hw_cpu_used_cores)
+
+# 集群 CPU 使用率（正确计算方式）
+sum(hw_cpu_used_cores) / sum(hw_cpu_threads) * 100
+
+# 集群平均 CPU 使用率（每节点平均）
+avg(hw_cpu_usage_percent)
+
+# ========== 内存指标 ==========
+
+# 集群内存总量
+sum(hw_memory_total_bytes)
+
+# 集群已用内存
+sum(hw_memory_used_bytes)
+
+# 集群内存使用率（正确计算方式）
+sum(hw_memory_used_bytes) / sum(hw_memory_total_bytes) * 100
+
+# 集群平均内存使用率（每节点平均）
+avg(hw_memory_usage_percent)
+
+# ========== GPU 指标 ==========
+
 # 集群 GPU 总数
 sum(hw_gpu_count)
 
@@ -245,16 +284,36 @@ sum(hw_gpu_used_count) / sum(hw_gpu_count) * 100
 # 按 GPU 型号统计集群 GPU 数量
 sum by (gpu_type) (hw_gpu_type_count)
 
-# 集群内存总量
-sum(hw_memory_total_bytes)
+# 集群 GPU 显存总量
+sum(hw_gpu_memory_total_bytes)
 
-# 集群平均内存使用率
+# 集群 GPU 已用显存
+sum(hw_gpu_memory_used_bytes)
+
+# 集群 GPU 显存使用率
+sum(hw_gpu_memory_used_bytes) / sum(hw_gpu_memory_total_bytes) * 100
+```
+
+### 错误用法示例
+
+```promql
+# ❌ 错误：sum 百分比会超过 100%
+sum(hw_cpu_usage_percent)           # 10个节点各50% = 500%
+sum(hw_memory_usage_percent)        # 10个节点各60% = 600%
+
+# ✅ 正确：使用绝对值计算或使用 avg
+sum(hw_cpu_used_cores) / sum(hw_cpu_threads) * 100
+sum(hw_memory_used_bytes) / sum(hw_memory_total_bytes) * 100
+avg(hw_cpu_usage_percent)
 avg(hw_memory_usage_percent)
 ```
 
 ### 节点级别查询
 
 ```promql
+# 某节点的 CPU 使用核心数
+hw_cpu_used_cores{node="gpu-node-01"}
+
 # 某节点的 GPU 使用情况
 hw_gpu_used_count{node="gpu-node-01"}
 
@@ -266,6 +325,12 @@ hw_gpu_temperature_celsius > 80
 
 # 显存使用超过 90% 的 GPU
 hw_gpu_memory_used_bytes / hw_gpu_memory_total_bytes * 100 > 90
+
+# CPU 使用率超过 80% 的节点
+hw_cpu_usage_percent > 80
+
+# 内存使用率超过 90% 的节点
+hw_memory_usage_percent > 90
 ```
 
 ## 配置

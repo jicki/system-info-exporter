@@ -76,6 +76,7 @@ pub struct NodeMetrics {
     pub cpu_threads: usize,
     pub cpu_model: String,
     pub cpu_usage_percent: f32,
+    pub cpu_used_cores: f32,
     pub memory_total_bytes: u64,
     pub memory_used_bytes: u64,
     pub memory_available_bytes: u64,
@@ -109,6 +110,11 @@ impl NodeMetrics {
             .map(|cpu| cpu.brand().to_string())
             .unwrap_or_else(|| "unknown".to_string());
 
+        // Calculate CPU used cores: (usage_percent / 100) * total_threads
+        let cpu_threads = sys.cpus().len();
+        let cpu_usage_percent = sys.global_cpu_usage();
+        let cpu_used_cores = (cpu_usage_percent / 100.0) * cpu_threads as f32;
+
         let (gpu_devices, gpu_type_counts, gpu_used_count) = collect_gpu_info();
 
         // Get node name from NODE_NAME env variable, fallback to hostname
@@ -128,9 +134,10 @@ impl NodeMetrics {
             kernel_version: System::kernel_version().unwrap_or_else(|| "unknown".to_string()),
             uptime_secs: System::uptime(),
             cpu_cores: sys.physical_core_count().unwrap_or(0),
-            cpu_threads: sys.cpus().len(),
+            cpu_threads,
             cpu_model,
-            cpu_usage_percent: sys.global_cpu_usage(),
+            cpu_usage_percent,
+            cpu_used_cores,
             memory_total_bytes: memory_total,
             memory_used_bytes: memory_used,
             memory_available_bytes: memory_available,
@@ -195,6 +202,14 @@ impl NodeMetrics {
             output.push_str(&format!(
                 "hw_cpu_usage_percent{{node=\"{}\"}} {:.2}\n",
                 node, self.cpu_usage_percent
+            ));
+
+            // CPU used cores: calculated as (usage_percent / 100) * total_threads
+            output.push_str("# HELP hw_cpu_used_cores Number of CPU cores currently in use\n");
+            output.push_str("# TYPE hw_cpu_used_cores gauge\n");
+            output.push_str(&format!(
+                "hw_cpu_used_cores{{node=\"{}\"}} {:.2}\n",
+                node, self.cpu_used_cores
             ));
         }
 
