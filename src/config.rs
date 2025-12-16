@@ -36,6 +36,8 @@ pub struct MetricsEnabled {
     pub cpu_threads: bool,
     #[serde(default = "default_true")]
     pub cpu_usage: bool,
+    #[serde(default = "default_true")]
+    pub cpu_used_cores: bool,
 
     // Memory metrics
     #[serde(default = "default_true")]
@@ -82,6 +84,7 @@ impl Default for MetricsEnabled {
             cpu_cores: true,
             cpu_threads: true,
             cpu_usage: true,
+            cpu_used_cores: true,
             memory_total: true,
             memory_used: true,
             memory_available: true,

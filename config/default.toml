@@ -18,6 +18,7 @@ node_uptime = true
 cpu_cores = true
 cpu_threads = true
 cpu_usage = true
+cpu_used_cores = true
 
 # Memory metrics
 memory_total = true

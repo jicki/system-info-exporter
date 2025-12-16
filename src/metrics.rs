@@ -203,7 +203,9 @@ impl NodeMetrics {
                 "hw_cpu_usage_percent{{node=\"{}\"}} {:.2}\n",
                 node, self.cpu_usage_percent
             ));
+        }
 
+        if enabled.cpu_used_cores {
             // CPU used cores: calculated as (usage_percent / 100) * total_threads
             output.push_str("# HELP hw_cpu_used_cores Number of CPU cores currently in use\n");
             output.push_str("# TYPE hw_cpu_used_cores gauge\n");
